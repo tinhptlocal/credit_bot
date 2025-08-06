@@ -6,7 +6,7 @@ import {
   ManyToOne,
   UpdateDateColumn,
 } from 'typeorm';
-import { User } from '../user.entity';
+import { Users } from '../users.entity';
 
 export abstract class TimeStamp {
   @CreateDateColumn({
@@ -20,13 +20,13 @@ export abstract class TimeStamp {
   @Column('bigint', { name: 'created_by', nullable: true, unique: false })
   createdById?: string | null;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => Users)
   @JoinColumn({
     name: 'created_by',
-    referencedColumnName: 'id',
+    referencedColumnName: 'user_id',
     foreignKeyConstraintName: 'fk_timestamp_created_by',
   })
-  createdBy?: User | null;
+  createdBy?: Users | null;
 
   @UpdateDateColumn({
     type: 'timestamp without time zone',
@@ -39,13 +39,13 @@ export abstract class TimeStamp {
   @Column('bigint', { name: 'updated_by', nullable: true, unique: false })
   updatedById?: string | null;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => Users)
   @JoinColumn({
     name: 'updated_by',
-    referencedColumnName: 'id',
+    referencedColumnName: 'user_id',
     foreignKeyConstraintName: 'fk_timestamp_updated_by',
   })
-  updatedBy?: User | null;
+  updatedBy?: Users | null;
 
   @DeleteDateColumn({
     type: 'timestamp without time zone',
