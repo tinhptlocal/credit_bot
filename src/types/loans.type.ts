@@ -1,4 +1,4 @@
-export const enum LoanStatus {
+export enum LoanStatus {
   PENDING = 'pending',
   APPROVED = 'approved',
   REPAID = 'repaid',

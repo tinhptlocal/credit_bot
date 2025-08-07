@@ -14,7 +14,7 @@ export class Roles {
 
   @Column({
     name: 'name',
-    type: 'character varying',
+    type: 'varchar',
     length: 50,
     nullable: false,
     unique: true,

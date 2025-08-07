@@ -49,6 +49,7 @@ declare global {
   };
 
   interface MezonModuleAsyncOptions extends Pick<ModuleMetadata, 'imports'> {
+    // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
     useFactory?: (...args: any[]) => Promise<any> | any;
     inject?: any[];
   }

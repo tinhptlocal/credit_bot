@@ -4,6 +4,7 @@ import {
   Entity,
   Index,
   OneToMany,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Loans } from './loans.entity';
@@ -18,13 +19,12 @@ export class Users {
   @PrimaryGeneratedColumn({
     name: 'id',
     type: 'bigint',
-    primaryKeyConstraintName: 'users_pkey',
   })
   id!: string;
 
   @Column({
     name: 'username',
-    type: 'character varying',
+    type: 'varchar',
     length: 255,
     nullable: false,
     unique: true,
@@ -33,19 +33,19 @@ export class Users {
 
   @Column({
     name: 'user_id',
-    type: 'character varying',
+    type: 'varchar',
     length: 255,
     nullable: false,
+    unique: true,
   })
   userId!: string;
 
   @Column({
     name: 'balance',
     type: 'bigint',
-    length: 255,
     nullable: false,
   })
-  password!: string;
+  balance!: string;
 
   @Column({
     name: 'credit_score',

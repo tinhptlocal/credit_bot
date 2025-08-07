@@ -20,7 +20,7 @@ export const ENV = {
 
   BOT: {
     TOKEN: process.env.BOT_TOKEN,
-    NAME: process.env.BOT_NAME,
+    NAME: process.env.BOT_NAME ?? 'credit',
     ID: process.env.BOT_ID,
   },
 };

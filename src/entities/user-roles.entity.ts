@@ -20,7 +20,8 @@ export class UserRoles {
 
   @Column({
     name: 'user_id',
-    type: 'bigint',
+    type: 'varchar',
+    length: 255,
     nullable: false,
   })
   userId!: string;
@@ -36,7 +37,7 @@ export class UserRoles {
   @JoinColumn({
     name: 'role_id',
     referencedColumnName: 'id',
-    foreignKeyConstraintName: 'fk_user_roles_user_id',
+    foreignKeyConstraintName: 'fk_role_roles_user',
   })
   role!: Roles;
 
@@ -44,7 +45,7 @@ export class UserRoles {
   @JoinColumn({
     name: 'user_id',
     referencedColumnName: 'userId',
-    foreignKeyConstraintName: 'fk_user_roles_user_id',
+    foreignKeyConstraintName: 'fk_user_roles_user',
   })
   user!: Users;
 }
