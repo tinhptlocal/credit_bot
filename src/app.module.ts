@@ -5,6 +5,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PostgresConfiguration } from './config';
 import { BotModule } from './shared/bot/bot.module';
 import { RedisModule } from './shared/redis/redis.module';
+import { UserModule } from './modules/user/user.module';
+import { BotEvent } from './shared/event/bot.event';
+import { BotEventModule } from './shared/event/bot-event.module';
 
 @Module({
   imports: [
@@ -17,6 +20,8 @@ import { RedisModule } from './shared/redis/redis.module';
     RedisModule,
     EventEmitterModule.forRoot(),
     BotModule,
+    UserModule,
+    BotEventModule,
   ],
   controllers: [],
   providers: [],

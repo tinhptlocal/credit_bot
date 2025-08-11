@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MezonClient } from 'mezon-sdk';
 import { BotGateway } from '../bot/bot.gateway';
 import { MezonService } from './mezon.service';
+import { ENV } from 'src/config';
 @Module({
   imports: [],
   providers: [
@@ -15,12 +16,9 @@ import { MezonService } from './mezon.service';
         logger: Logger,
         botGateway: BotGateway,
       ) => {
-        const client = new MezonClient(
-          configService.get<string>('MEZON_TOKEN'),
-        );
+        const client = new MezonClient(ENV.BOT.TOKEN);
         await client.login();
         await botGateway.initEvent(client);
-        logger.warn(`Mezon client initialized ${client.clientId}`);
 
         return client;
       },
