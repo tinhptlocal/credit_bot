@@ -5,4 +5,5 @@ export const TABLE = {
   TRANSACTIONS: 'transactions',
   USER_ROLES: 'user_roles',
   ROLES: 'roles',
+  TRANSACTION_LOGS: 'transaction_logs',
 };

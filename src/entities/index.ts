@@ -4,3 +4,4 @@ export * from './transactions.entity';
 export * from './payments.entity';
 export * from './roles.entity';
 export * from './user-roles.entity';
+export * from './transaction-logs.entity';

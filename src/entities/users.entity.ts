@@ -12,6 +12,7 @@ import { Payments } from './payments.entity';
 import { TimeStamp } from './timestamp';
 import { Transactions } from './transactions.entity';
 import { UserRoles } from './user-roles.entity';
+import { TransactionLogs } from './transaction-logs.entity';
 
 @Entity({ name: TABLE.USERS, schema: 'public' })
 @Index(['userId'], { unique: true })
@@ -66,6 +67,9 @@ export class Users {
 
   @OneToMany(() => Payments, (payment) => payment.user)
   payments: Payments[];
+
+  @OneToMany(() => TransactionLogs, (transactionLogs) => transactionLogs.user)
+  transactionsLogs: TransactionLogs[];
 
   @Column(() => TimeStamp, { prefix: false })
   timestamp: TimeStamp;

@@ -8,6 +8,7 @@ import { RedisModule } from './shared/redis/redis.module';
 import { UserModule } from './modules/user/user.module';
 import { BotEvent } from './shared/event/bot.event';
 import { BotEventModule } from './shared/event/bot-event.module';
+import { TransactionModule } from './modules/transaction/transaction.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { BotEventModule } from './shared/event/bot-event.module';
     BotModule,
     UserModule,
     BotEventModule,
+    TransactionModule,
   ],
   controllers: [],
   providers: [],
