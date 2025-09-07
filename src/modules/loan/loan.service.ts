@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ChannelMessage } from 'mezon-sdk';
+import { ChannelMessage, EButtonMessageStyle } from 'mezon-sdk';
 import { MAX_LOAN_AMOUNTS } from 'src/constant';
 import { Loans, Users } from 'src/entities';
 import { formatVND } from 'src/shared/helper';
@@ -10,6 +10,7 @@ import {
   EMessageType,
 } from 'src/shared/mezon/types/mezon.type';
 import { LoanStatus, PaymentStatus } from 'src/types';
+import { ButtonKey } from 'src/types/helper.type';
 import { Repository } from 'typeorm';
 
 @Injectable()
@@ -21,6 +22,25 @@ export class LoanService {
     private readonly userRepository: Repository<Users>,
     private mezonService: MezonService,
   ) {}
+
+  createButtonUserClick() {
+    return [
+      {
+        components: [
+          {
+            id: ButtonKey.ACCEPT,
+            type: EMessagePayloadType.SYSTEM,
+            component: { label: 'OK', style: EButtonMessageStyle.PRIMARY },
+          },
+          {
+            id: ButtonKey.CANCEL,
+            type: EMessagePayloadType.SYSTEM,
+            component: { label: 'Hủy bỏ', style: EButtonMessageStyle.DANGER },
+          },
+        ],
+      },
+    ];
+  }
 
   private calculateEMI(
     principal: number,
@@ -137,6 +157,7 @@ export class LoanService {
         '❌ Bạn đang có 1 khoản vay, hãy thanh toán khoản vay đó trước khi muốn vay tiếp!';
       await this.mezonService.sendMessage({
         type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
         payload: {
           channel_id: data.channel_id,
           message: {
@@ -152,6 +173,7 @@ export class LoanService {
     if (amount > MAX_LOAN_AMOUNTS) {
       await this.mezonService.sendMessage({
         type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
         payload: {
           channel_id: data.channel_id,
           message: {
@@ -167,6 +189,7 @@ export class LoanService {
     if (term < 1 || term > 12) {
       await this.mezonService.sendMessage({
         type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
         payload: {
           channel_id: data.channel_id,
           message: {
@@ -207,13 +230,7 @@ export class LoanService {
       )
       .join('\n');
 
-    await this.mezonService.sendMessage({
-      type: EMessageType.CHANNEL,
-      payload: {
-        channel_id: data.channel_id,
-        message: {
-          type: EMessagePayloadType.SYSTEM,
-          content: `✅ Khoản vay của bạn là:
+    const systemMessageText = `✅ Khoản vay của bạn là:
     - Số tiền vay: ${formatVND(amount)}
     - Lãi suất cơ bản: ${termDetails.baseRate}%/năm
     - Lãi suất theo điểm tín dụng: ${finalRate}%/năm
@@ -223,7 +240,19 @@ export class LoanService {
     - Tổng tiền lãi: ${formatVND(loanDetails.totalInterest)}
 ✅ Lịch trả nợ:
 ${scheduleMessage}
-✅ Vui lòng đợi admin phê duyệt khoản vay của bạn!`,
+✅ Xác nhận khoản vay của bạn`;
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.CHANNEL,
+      reply_to_message_id: data.message_id,
+      payload: {
+        channel_id: data.channel_id,
+        message: {
+          type: EMessagePayloadType.OPTIONAL,
+          content: {
+            t: systemMessageText,
+            components: this.createButtonUserClick(),
+          },
         },
       },
     });
@@ -240,6 +269,7 @@ ${scheduleMessage}
     if (!user) {
       await this.mezonService.sendMessage({
         type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
         payload: {
           channel_id: data.channel_id,
           message: {
@@ -260,6 +290,7 @@ ${scheduleMessage}
     if (!loans.length) {
       await this.mezonService.sendMessage({
         type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
         payload: {
           channel_id: data.channel_id,
           message: {
@@ -293,6 +324,7 @@ ${scheduleMessage}
 
     await this.mezonService.sendMessage({
       type: EMessageType.CHANNEL,
+      reply_to_message_id: data.message_id,
       payload: {
         channel_id: data.channel_id,
         message: {

@@ -77,11 +77,13 @@ export class BotEvent {
     if (!OPTION_LOAN_TERMS.includes(term)) {
       await this.mezonService.sendMessage({
         type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
         payload: {
           channel_id: data.channel_id,
           message: {
             type: EMessagePayloadType.SYSTEM,
-            content: '❌ Hiện chỉ có thể vay với các kỳ hạn: 3, 6, 12 tháng.',
+            content:
+              '❌ Hiện chỉ có thể vay với các kỳ hạn: 3, 6, 9, 12 tháng.',
           },
         },
       });
