@@ -5,6 +5,8 @@ export const STARTED_MESSAGE = '$';
 export const STARTED_MESSAGE_WITH_BOT_NAME = `${STARTED_MESSAGE}${BOT_NAME}`;
 export const CHECK_BALANCE_MESSAGE = 'kttk';
 export const WITH_DRAW = 'rut';
+export const LOANS = 'vay';
+export const LOANS_CHECK = 'ktvay';
 
 export const EMPTY_BALANCE_MESSAGES = [
   `Pay more for love!`,
@@ -18,3 +20,7 @@ export const EMPTY_BALANCE_MESSAGES = [
   'Your balance has reached zero. Please recharge to keep using our services.',
   'Insufficient balance! Please add more credits to your account to continue.',
 ];
+
+export const OPTION_LOAN_TERMS = [3, 6, 9, 12]; // in months
+
+export const MAX_LOAN_AMOUNTS = 1000000; // Maximum loan amount is 1,000,000 VND

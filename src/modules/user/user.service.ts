@@ -83,29 +83,10 @@ export class UserService {
       ]);
 
       const message = `💸 Rút ${formatVND(amountNumber)} thành công`;
-      await this.mezonService.sendMessage({
-        type: EMessageType.CHANNEL,
-        reply_to_message_id: data.message_id,
-        payload: {
-          channel_id: data.channel_id,
-          message: {
-            type: EMessagePayloadType.SYSTEM,
-            content: message,
-          },
-        },
-      });
+      await this.sendSystemMessage(data.channel_id, message, data.message_id);
     } catch (error) {
-      await this.mezonService.sendMessage({
-        type: EMessageType.CHANNEL,
-        reply_to_message_id: data.message_id,
-        payload: {
-          channel_id: data.channel_id,
-          message: {
-            type: EMessagePayloadType.SYSTEM,
-            content: `Rút tiền không thành công. Vui lòng kiểm tra lại tài khoản nếu có mất tiền xin liên hệ với đội IT để được hỗ trợ`,
-          },
-        },
-      });
+      const message = `Rút tiền không thành công. Vui lòng kiểm tra lại tài khoản nếu có mất tiền xin liên hệ với đội IT để được hỗ trợ`;
+      await this.sendSystemMessage(data.channel_id, message, data.message_id);
       console.log('error', error);
     }
   }

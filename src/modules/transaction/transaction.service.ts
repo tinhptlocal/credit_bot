@@ -34,7 +34,7 @@ export class TransactionService {
             userId: String(data.sender_id),
             balance: String(data.amount),
             username: data.sender_name,
-            creditScore: 0,
+            creditScore: 100,
           }),
         );
 
