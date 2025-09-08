@@ -1,3 +1,4 @@
+import { PaymentStatus, TABLE } from 'src/types';
 import {
   Column,
   Entity,
@@ -7,11 +8,10 @@ import {
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Users } from './users.entity';
 import { Loans } from './loans.entity';
-import { Transactions } from './transactions.entity';
 import { TimeStamp } from './timestamp';
-import { PaymentStatus, TABLE } from 'src/types';
+import { Transactions } from './transactions.entity';
+import { Users } from './users.entity';
 
 @Entity({ name: TABLE.PAYMENTS, schema: 'public' })
 @Index(['id'], { unique: true })
@@ -35,7 +35,8 @@ export class Payments {
 
   @Column({
     name: 'user_id',
-    type: 'bigint',
+    type: 'varchar',
+    length: 255,
     nullable: false,
   })
   userId!: string;
@@ -95,13 +96,13 @@ export class Payments {
   @Column({
     name: 'status',
     type: 'enum',
-    default: 'pending',
+    enum: PaymentStatus,
   })
   status!: PaymentStatus;
 
   @Column({
     name: 'transaction_id',
-    type: 'character varying',
+    type: 'varchar',
     length: 255,
     nullable: false,
   })
@@ -110,7 +111,7 @@ export class Payments {
   @ManyToOne(() => Users, (user) => user.payments)
   @JoinColumn({
     name: 'user_id',
-    referencedColumnName: 'user_id',
+    referencedColumnName: 'userId',
     foreignKeyConstraintName: 'fk_payments_users',
   })
   user!: Users;

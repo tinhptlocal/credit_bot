@@ -21,7 +21,7 @@ export class Loans {
   @PrimaryGeneratedColumn({
     name: 'id',
     type: 'bigint',
-    primaryKeyConstraintName: 'users_pkey',
+    primaryKeyConstraintName: 'loans_pkey',
   })
   id!: string;
 
@@ -62,13 +62,14 @@ export class Loans {
   @Column({
     name: 'status',
     type: 'enum',
+    enum: LoanStatus,
     nullable: false,
   })
   status!: LoanStatus;
 
   @Column({
     name: 'user_id',
-    type: 'character varying',
+    type: 'varchar',
     length: 255,
     nullable: false,
   })

@@ -24,7 +24,7 @@ export class Transactions {
 
   @Column({
     name: 'transaction_id',
-    type: 'character varying',
+    type: 'varchar',
     length: 255,
     nullable: false,
   })
@@ -32,7 +32,7 @@ export class Transactions {
 
   @Column({
     name: 'status',
-    type: 'character varying',
+    type: 'varchar',
     length: 50,
     nullable: false,
   })
@@ -41,7 +41,7 @@ export class Transactions {
   @Column({
     name: 'type',
     type: 'enum',
-    length: 50,
+    enum: TransactionType,
     nullable: false,
   })
   type!: TransactionType;
@@ -55,8 +55,7 @@ export class Transactions {
 
   @Column({
     name: 'loan_id',
-    type: 'character varying',
-    length: 255,
+    type: 'bigint',
     nullable: false,
   })
   loanId!: string;
@@ -71,7 +70,7 @@ export class Transactions {
 
   @Column({
     name: 'user_id',
-    type: 'character varying',
+    type: 'varchar',
     length: 255,
   })
   userId?: string;
@@ -86,13 +85,12 @@ export class Transactions {
 
   @Column({
     name: 'payment_id',
-    type: 'character varying',
-    length: 255,
+    type: 'bigint',
     nullable: true,
   })
   paymentId?: string;
 
-  @ManyToOne(() => Loans, (loan) => loan.transactions)
+  @ManyToOne(() => Payments, (payment) => payment.transactions)
   @JoinColumn({
     name: 'payment_id',
     referencedColumnName: 'id',

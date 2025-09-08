@@ -23,7 +23,7 @@ export abstract class TimeStamp {
   @ManyToOne(() => Users)
   @JoinColumn({
     name: 'created_by',
-    referencedColumnName: 'user_id',
+    referencedColumnName: 'userId',
     foreignKeyConstraintName: 'fk_timestamp_created_by',
   })
   createdBy?: Users | null;
@@ -42,7 +42,7 @@ export abstract class TimeStamp {
   @ManyToOne(() => Users)
   @JoinColumn({
     name: 'updated_by',
-    referencedColumnName: 'user_id',
+    referencedColumnName: 'userId',
     foreignKeyConstraintName: 'fk_timestamp_updated_by',
   })
   updatedBy?: Users | null;

@@ -1,7 +1,14 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { PostgresConfiguration } from './config';
+import { BotModule } from './shared/bot/bot.module';
+import { RedisModule } from './shared/redis/redis.module';
+import { UserModule } from './modules/user/user.module';
+import { BotEvent } from './shared/event/bot.event';
+import { BotEventModule } from './shared/event/bot-event.module';
+import { TransactionModule } from './modules/transaction/transaction.module';
 
 @Module({
   imports: [
@@ -11,6 +18,12 @@ import { PostgresConfiguration } from './config';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RedisModule,
+    EventEmitterModule.forRoot(),
+    BotModule,
+    UserModule,
+    BotEventModule,
+    TransactionModule,
   ],
   controllers: [],
   providers: [],
