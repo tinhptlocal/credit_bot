@@ -6,6 +6,7 @@ import { PostgresConfiguration } from './config';
 import { BotModule } from './shared/bot/bot.module';
 import { RedisModule } from './shared/redis/redis.module';
 import { UserModule } from './modules/user/user.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { BotEvent } from './shared/event/bot.event';
 import { BotEventModule } from './shared/event/bot-event.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
@@ -22,6 +23,7 @@ import { TransactionModule } from './modules/transaction/transaction.module';
     EventEmitterModule.forRoot(),
     BotModule,
     UserModule,
+    AdminModule,
     BotEventModule,
     TransactionModule,
   ],
