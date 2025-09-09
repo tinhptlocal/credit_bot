@@ -8,6 +8,32 @@ export const WITH_DRAW = 'rut';
 export const LOANS = 'vay';
 export const LOANS_CHECK = 'ktvay';
 
+// Admin Commands
+export const ADMIN_PREFIX = `${STARTED_MESSAGE}admin`;
+export const ADMIN_KICK = 'kick';
+export const ADMIN_BAN = 'ban';
+export const ADMIN_UNBAN = 'unban';
+export const ADMIN_WARN = 'warn';
+export const ADMIN_STATS = 'stats';
+export const ADMIN_LOANS = 'loans';
+export const ADMIN_APPROVE = 'approve';
+export const ADMIN_REJECT = 'reject';
+export const ADMIN_USERS = 'users';
+export const ADMIN_CREDIT = 'credit';
+export const ADMIN_FIND = 'find';
+export const ID_ADMIN1 = '1929454908461813760';
+export const ID_ADMIN2 = '1840656224442388480';
+export const ID_ADMIN3 = 'YOUR_NEW_ADMIN_USER_ID_HERE';
+
+const fromEnv = (process.env.ADMIN_IDS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => !!s);
+
+export const ADMIN_IDS = fromEnv.length
+  ? fromEnv
+  : [ ID_ADMIN1, ID_ADMIN2, ID_ADMIN3];
+
 export const EMPTY_BALANCE_MESSAGES = [
   `Pay more for love!`,
   'Top up your balance to continue using our services!',
