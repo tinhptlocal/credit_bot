@@ -1,24 +1,24 @@
+import { LoanService } from '../loan/loan.service';
 import {
-  ForbiddenException,
   Injectable,
-  Logger,
+  ForbiddenException,
   NotFoundException,
+  Logger,
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ADMIN_IDS } from 'src/constant/index';
+import { Repository, Between } from 'typeorm';
 import {
-  Loans,
-  Payments,
-  Roles,
-  Transactions,
-  UserRoles,
   Users,
+  Roles,
+  UserRoles,
+  Loans,
+  Transactions,
+  Payments,
 } from 'src/entities';
+import { LoanStatus, PaymentStatus } from 'src/types';
 import { MezonService } from 'src/shared/mezon/mezon.service';
-import { LoanStatus } from 'src/types';
-import { Between, Repository } from 'typeorm';
-import { LoanService } from '../loan/loan.service';
+import { ADMIN_IDS } from 'src/constant/index';
 import { UserService } from '../user/user.service';
 
 @Injectable()
@@ -169,6 +169,175 @@ export class AdminService implements OnModuleInit {
     await this.loanService.handleLoanApproval(loanId, adminId);
 
     return await this.loanRepository.save(loan);
+  }
+
+  /**
+   * Tạo lịch thanh toán cho khoản vay đã được phê duyệt
+   */
+  private async createPaymentSchedule(loan: Loans): Promise<void> {
+    const { monthlyPayment, minimumPayment } = this.calculateEMI(
+      parseFloat(loan.amount),
+      12, // 12% annual interest rate
+      loan.term,
+    );
+
+    const payments: Partial<Payments>[] = [];
+    const startDate = new Date(loan.startDate);
+
+    for (let i = 1; i <= loan.term; i++) {
+      const dueDate = new Date(startDate);
+      dueDate.setMonth(startDate.getMonth() + i);
+
+      // Đảm bảo ngày không vượt quá ngày cuối tháng
+      if (dueDate.getDate() !== startDate.getDate()) {
+        dueDate.setDate(0); // Set to last day of previous month
+      }
+
+      const payment: Partial<Payments> = {
+        loanId: loan.id,
+        userId: loan.userId,
+        amount: monthlyPayment.toString(),
+        minimumAmount: minimumPayment.toString(),
+        dueDate: dueDate.toISOString().split('T')[0],
+        status: PaymentStatus.PENDING,
+        fee: '0',
+        interestRate: '12.00',
+        transactionId: `PENDING_${loan.id}_${i}`,
+      };
+
+      payments.push(payment);
+    }
+
+    await this.paymentRepository.save(payments);
+    this.logger.log(
+      `Created ${payments.length} payment records for loan ${loan.id}`,
+    );
+  }
+
+  /**
+   * Tính toán EMI (Equated Monthly Installment)
+   */
+  private calculateEMI(
+    principal: number,
+    annualRate: number,
+    termInMonths: number,
+  ): {
+    monthlyPayment: number;
+    minimumPayment: number;
+    totalPayment: number;
+    totalInterest: number;
+  } {
+    const monthlyRate = annualRate / 100 / 12;
+    const numberOfPayments = termInMonths;
+
+    // EMI = P * r * (1 + r)^n / ((1 + r)^n - 1)
+    const monthlyPayment =
+      (principal * monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments)) /
+      (Math.pow(1 + monthlyRate, numberOfPayments) - 1);
+
+    const totalPayment = monthlyPayment * numberOfPayments;
+    const totalInterest = totalPayment - principal;
+    const minimumPayment = monthlyPayment * 0.1; // 10% of monthly payment
+
+    return {
+      monthlyPayment: Math.round(monthlyPayment),
+      minimumPayment: Math.round(minimumPayment),
+      totalPayment: Math.round(totalPayment),
+      totalInterest: Math.round(totalInterest),
+    };
+  }
+
+  /**
+   * Tạo payment cho các loan đã approved nhưng chưa có payments
+   * (Dành cho việc fix dữ liệu cũ)
+   */
+  async generateMissingPayments(
+    adminId: string,
+  ): Promise<{ created: number; skipped: number }> {
+    if (!(await this.isAdmin(adminId))) {
+      throw new ForbiddenException('Only admins can generate missing payments');
+    }
+
+    const approvedLoansWithoutPayments = await this.loanRepository
+      .createQueryBuilder('loan')
+      .leftJoin('loan.payments', 'payment')
+      .where('loan.status = :status', { status: LoanStatus.APPROVED })
+      .andWhere('payment.id IS NULL')
+      .getMany();
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const loan of approvedLoansWithoutPayments) {
+      try {
+        await this.createPaymentSchedule(loan);
+        created++;
+        this.logger.log(`Generated payments for loan ${loan.id}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to generate payments for loan ${loan.id}:`,
+          error,
+        );
+        skipped++;
+      }
+    }
+
+    return { created, skipped };
+  }
+
+  /**
+   * Admin rút tiền từ balance của mình
+   */
+  async withdrawFromAdmin(
+    adminId: string,
+    amount: number,
+  ): Promise<{ remainingBalance: number; transactionId: string }> {
+    if (!(await this.isAdmin(adminId))) {
+      throw new ForbiddenException(
+        'Only admins can withdraw from admin balance',
+      );
+    }
+
+    const admin = await this.userRepository.findOne({
+      where: { userId: adminId },
+    });
+    if (!admin) {
+      throw new NotFoundException('Admin account not found');
+    }
+
+    const currentBalance = parseFloat(admin.balance);
+    if (currentBalance < amount) {
+      throw new ForbiddenException(
+        `Insufficient balance. Current: ${currentBalance}, Requested: ${amount}`,
+      );
+    }
+
+    // Cập nhật balance admin
+    const newBalance = currentBalance - amount;
+    await this.userRepository.update(adminId, {
+      balance: newBalance.toString(),
+    });
+
+    // Tạo transaction record
+    const transactionId = `ADMIN_WITHDRAW_${Date.now()}_${adminId}`;
+    await this.transactionRepository.save(
+      this.transactionRepository.create({
+        transactionId,
+        userId: adminId,
+        amount: amount.toString(),
+        type: 'withdrawal' as any,
+        status: 'completed',
+      }),
+    );
+
+    this.logger.log(
+      `Admin ${adminId} withdrew ${amount} VND. New balance: ${newBalance}`,
+    );
+
+    return {
+      remainingBalance: newBalance,
+      transactionId,
+    };
   }
 
   async rejectLoan(
@@ -355,7 +524,6 @@ export class AdminService implements OnModuleInit {
     });
 
     await this.userRoleRepository.save(adminUserRole);
-
     this.logger.log(`New admin created: ${username} (${userId})`);
     return savedAdmin;
   }

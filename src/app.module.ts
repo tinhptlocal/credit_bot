@@ -10,6 +10,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { BotEventModule } from './shared/event/bot-event.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
 import { RemiderModule } from './shared/schedule/remider.module';
+import { PaymentModule } from './modules/payment/payment.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { RemiderModule } from './shared/schedule/remider.module';
     AdminModule,
     BotEventModule,
     TransactionModule,
+    PaymentModule,
   ],
   controllers: [],
   providers: [],

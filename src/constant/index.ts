@@ -9,6 +9,19 @@ export const LOANS = 'vay';
 export const LOANS_CHECK = 'ktvay';
 export const CHECK_LOAN_ACTICE = 'loan_check';
 export const PAYMENT_CHECK_SCHEDULE = 'credit_check';
+export const LOANS_LIST = 'dsvay'; // danh sách khoản vay active
+
+// Payment commands
+export const PAYMENT_HISTORY = 'lstt'; // lịch sử thanh toán
+export const PAYMENT_UPCOMING = 'ttst'; // thanh toán sắp tới
+export const PAYMENT_PAY = 'tt'; // thanh toán
+export const PAYMENT_OVERDUE = 'ttqh'; // thanh toán quá hạn
+export const PAYMENT_LIST = 'dstt'; // danh sách tất cả thanh toán
+export const PAYMENT_EARLY = 'tth'; // thanh toán trước hạn (toàn bộ loan)
+export const PAYMENT_CONFIRM = 'xntt'; // xác nhận thanh toán trước hạn
+
+// Help Commands
+export const HELP = 'help'; // hiển thị hướng dẫn sử dụng
 
 // Admin Commands
 export const ADMIN_PREFIX = `${STARTED_MESSAGE}admin`;
@@ -26,6 +39,8 @@ export const ADMIN_FIND = 'find';
 export const ID_ADMIN1 = '1929454908461813760';
 export const ID_ADMIN2 = '1840656224442388480';
 export const ID_ADMIN3 = '1930090353453436928';
+export const ADMIN_GENERATE_PAYMENTS = 'genpay'; // tạo payments cho loans đã approved
+export const ADMIN_WITHDRAW = 'withdraw'; // admin rút tiền từ balance
 
 const fromEnv = (process.env.ADMIN_IDS || '')
   .split(',')
