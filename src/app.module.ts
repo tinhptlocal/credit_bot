@@ -7,9 +7,9 @@ import { BotModule } from './shared/bot/bot.module';
 import { RedisModule } from './shared/redis/redis.module';
 import { UserModule } from './modules/user/user.module';
 import { AdminModule } from './modules/admin/admin.module';
-import { BotEvent } from './shared/event/bot.event';
 import { BotEventModule } from './shared/event/bot-event.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
+import { RemiderModule } from './shared/schedule/remider.module';
 
 @Module({
   imports: [
@@ -19,6 +19,7 @@ import { TransactionModule } from './modules/transaction/transaction.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RemiderModule,
     RedisModule,
     EventEmitterModule.forRoot(),
     BotModule,

@@ -21,11 +21,17 @@ import {
   ADMIN_USERS,
   ADMIN_CREDIT,
   ADMIN_FIND,
+  CHECK_LOAN_ACTICE,
+  PAYMENT_CHECK_SCHEDULE,
 } from 'src/constant';
 import { TransactionService } from 'src/modules/transaction/transaction.service';
 import { UserService } from 'src/modules/user/user.service';
 import { MezonService } from '../mezon/mezon.service';
-import { EMessagePayloadType, EMessageType } from '../mezon/types/mezon.type';
+import {
+  EMessagePayloadType,
+  EMessageType,
+  MessageButtonClickedEvent,
+} from '../mezon/types/mezon.type';
 import { LoanService } from 'src/modules/loan/loan.service';
 import { AdminService } from 'src/modules/admin/admin.service';
 import { ADMIN_IDS } from 'src/constant';
@@ -54,18 +60,29 @@ export class BotEvent {
       await this.userService.checkBalance(data);
     } else if (message?.startsWith(`${STARTED_MESSAGE}${WITH_DRAW}`)) {
       const numberInString = message.match(/\d+/);
-        if (numberInString) {
-          await this.userService.withDraw(data, String(numberInString[0]));
-        }
+      if (numberInString) {
+        await this.userService.withDraw(data, String(numberInString[0]));
       }
-    else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${LOANS}`)) {
+    } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${LOANS}`)) {
       await this.handleCreateLoans(data);
     } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_CHECK}`) {
       await this.loanService.getLoanStatus(data);
-    }
-    else if (message?.startsWith(ADMIN_PREFIX)) {
+    } else if (message?.startsWith(ADMIN_PREFIX)) {
       await this.handleAdminCommands(data);
+    } else if (message === `${STARTED_MESSAGE}${CHECK_LOAN_ACTICE}`) {
+      await this.loanService.getLoanActive(data);
+    } else if (
+      message?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CHECK_SCHEDULE}`)
+    ) {
+      const parts = message.split(' ');
+      const username = parts[1]; // Optional username parameter
+      await this.loanService.getPaymentSchedule(data, username);
     }
+  }
+
+  @OnEvent(Events.MessageButtonClicked)
+  async handleMessageButtonClickedEvent(data: MessageButtonClickedEvent) {
+    await this.loanService.handleCLickButton(data);
   }
 
   async handleCreateLoans(data: ChannelMessage) {
@@ -117,9 +134,9 @@ export class BotEvent {
     }
     if (!ADMIN_IDS.includes(adminId)) {
       await this.userService.sendSystemMessage(
-        data.channel_id, 
-        '❌ Bạn không có quyền sử dụng lệnh admin!', 
-        data.message_id
+        data.channel_id,
+        '❌ Bạn không có quyền sử dụng lệnh admin!',
+        data.message_id,
       );
       return;
     }
@@ -163,27 +180,36 @@ export class BotEvent {
       await this.userService.sendSystemMessage(
         data.channel_id,
         `❌ Lỗi: ${error.message}`,
-        data.message_id
+        data.message_id,
       );
     }
   }
 
   private async handleStatsCommand(data: ChannelMessage) {
     const stats = await this.adminService.getSystemStatistics();
-    const message = `📊 Thống kê hệ thống:\n` +
+    const message =
+      `📊 Thống kê hệ thống:\n` +
       `👥 Tổng users: ${stats.totalUsers}\n` +
       `💰 Tổng khoản vay: ${stats.totalLoans}\n` +
       `⏳ Chờ phê duyệt: ${stats.pendingLoans}\n` +
       `✅ Đã phê duyệt: ${stats.approvedLoans}\n` +
       `❌ Đã từ chối: ${stats.rejectedLoans}`;
-    
-    await this.userService.sendSystemMessage(data.channel_id, message, data.message_id);
+
+    await this.userService.sendSystemMessage(
+      data.channel_id,
+      message,
+      data.message_id,
+    );
   }
 
   private async handleLoansCommand(data: ChannelMessage) {
     const loans = await this.adminService.getPendingLoans();
     if (loans.length === 0) {
-      await this.userService.sendSystemMessage(data.channel_id, '📋 Không có khoản vay nào chờ phê duyệt', data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '📋 Không có khoản vay nào chờ phê duyệt',
+        data.message_id,
+      );
       return;
     }
 
@@ -191,195 +217,336 @@ export class BotEvent {
     loans.slice(0, 5).forEach((loan, index) => {
       message += `${index + 1}. ID: ${loan.id} | User: ${loan.user.username} (${loan.user.userId}) | Số tiền: ${loan.amount}\n`;
     });
-    
-    await this.userService.sendSystemMessage(data.channel_id, message, data.message_id);
+
+    await this.userService.sendSystemMessage(
+      data.channel_id,
+      message,
+      data.message_id,
+    );
   }
 
   private async handleUsersCommand(data: ChannelMessage) {
     const users = await this.adminService.getAllUsers();
-    const sortedUsers = users.sort((a, b) => parseInt(b.balance) - parseInt(a.balance));
-    
+    const sortedUsers = users.sort(
+      (a, b) => parseInt(b.balance) - parseInt(a.balance),
+    );
+
     let message = `👥 Tổng số users: ${users.length}\n\n`;
     message += `📊 Danh sách users:\n`;
-    
+
     sortedUsers.forEach((user, index) => {
       const role = user.userRoles?.[0]?.role?.name || 'user';
       const roleIcon = role === 'admin' ? '👑' : '👤';
       const balance = parseInt(user.balance).toLocaleString('vi-VN');
-      
+
       message += `${index + 1}. ${roleIcon} ${user.username}\n`;
       message += `   💰 Số dư: ${balance} VND\n`;
       message += `   ⭐ Điểm tín dụng: ${user.creditScore}\n`;
       message += `   🆔 ID: \`${user.userId}\`\n`;
       message += `   🏷️ Role: ${role}\n\n`;
     });
-    
-    await this.userService.sendSystemMessage(data.channel_id, message, data.message_id);
+
+    await this.userService.sendSystemMessage(
+      data.channel_id,
+      message,
+      data.message_id,
+    );
   }
 
   private async handleFindCommand(data: ChannelMessage, parts: string[]) {
     if (parts.length < 3) {
-      await this.userService.sendSystemMessage(data.channel_id, '❌ Sử dụng: $admin find <tên_hoặc_id>', data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Sử dụng: $admin find <tên_hoặc_id>',
+        data.message_id,
+      );
       return;
     }
 
     const searchTerm = parts.slice(2).join(' ');
-    
+
     try {
       const users = await this.adminService.searchUsers(searchTerm);
-      
+
       if (users.length === 0) {
-        await this.userService.sendSystemMessage(data.channel_id, `❌ Không tìm thấy user nào với từ khóa: "${searchTerm}"`, data.message_id);
+        await this.userService.sendSystemMessage(
+          data.channel_id,
+          `❌ Không tìm thấy user nào với từ khóa: "${searchTerm}"`,
+          data.message_id,
+        );
         return;
       }
 
       let message = `🔍 Kết quả tìm kiếm cho: "${searchTerm}"\n\n`;
-      
+
       users.forEach((user, index) => {
         const role = user.userRoles?.[0]?.role?.name || 'user';
         const roleIcon = role === 'admin' ? '👑' : '👤';
         const balance = parseInt(user.balance).toLocaleString('vi-VN');
-        
+
         message += `${index + 1}. ${roleIcon} ${user.username}\n`;
         message += `   💰 Số dư: ${balance} VND\n`;
         message += `   ⭐ Điểm tín dụng: ${user.creditScore}\n`;
         message += `   🆔 ID: \`${user.userId}\`\n`;
         message += `   🏷️ Role: ${role}\n\n`;
       });
-      
-      await this.userService.sendSystemMessage(data.channel_id, message, data.message_id);
+
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        message,
+        data.message_id,
+      );
     } catch (error) {
-      await this.userService.sendSystemMessage(data.channel_id, `❌ Lỗi: ${error.message}`, data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
     }
   }
 
   private async handleKickCommand(data: ChannelMessage, parts: string[]) {
     if (parts.length < 3) {
-      await this.userService.sendSystemMessage(data.channel_id, '❌ Sử dụng: $admin kick <user_id> [lý do]', data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Sử dụng: $admin kick <userName> [lý do]',
+        data.message_id,
+      );
       return;
     }
-    
-    const userId = parts[2];
+
+    const userName = parts[2];
     const reason = parts.slice(3).join(' ');
-    
+
     try {
-      const user = await this.adminService.getUserById(userId);
+      const user = await this.adminService.getUserByUsername(userName);
       if (!user) {
-        await this.userService.sendSystemMessage(data.channel_id, `❌ Không tìm thấy user với ID: ${userId}`, data.message_id);
+        await this.userService.sendSystemMessage(
+          data.channel_id,
+          `❌ user name ${userName} chưa có khoản vay hoặc không tồn tại trong hệ thống!`,
+          data.message_id,
+        );
         return;
       }
-      
-      await this.adminService.kickUser(userId, data.channel_id, data.sender_id, reason);
-      await this.userService.sendSystemMessage(data.channel_id, `👢 Đã kick user ${user.username} (${userId})${reason ? ` - Lý do: ${reason}` : ''}`, data.message_id);
+
+      const userId = user.id;
+
+      await this.adminService.kickUser(
+        userName,
+        data.channel_id,
+        data.sender_id,
+        reason,
+      );
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `👢 Đã kick user ${user.username} (${userId})${reason ? ` - Lý do: ${reason}` : ''}`,
+        data.message_id,
+      );
     } catch (error) {
-      await this.userService.sendSystemMessage(data.channel_id, `❌ Lỗi: ${error.message}`, data.message_id);
-    }
-  }
-  private async handleWarnCommand(data: ChannelMessage, parts: string[]) {
-    if (parts.length < 4) {
-      await this.userService.sendSystemMessage(data.channel_id, '❌ Sử dụng: $admin warn <user_id> <lý do>', data.message_id);
-      return;
-    }
-    
-    const userId = parts[2];
-    const reason = parts.slice(3).join(' ');
-    
-    try {
-      const user = await this.adminService.getUserById(userId);
-      if (!user) {
-        await this.userService.sendSystemMessage(data.channel_id, `❌ Không tìm thấy user với ID: ${userId}`, data.message_id);
-        return;
-      }
-      
-      await this.adminService.warnUser(userId, data.channel_id, data.sender_id, reason);
-      await this.userService.sendSystemMessage(data.channel_id, `⚠️ Đã cảnh báo user ${user.username} (${userId}) - Lý do: ${reason}`, data.message_id);
-    } catch (error) {
-      await this.userService.sendSystemMessage(data.channel_id, `❌ Lỗi: ${error.message}`, data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
     }
   }
 
+  private async handleWarnCommand(data: ChannelMessage, parts: string[]) {
+    if (parts.length < 4) {
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Sử dụng: $admin warn <userName> <lý do>',
+        data.message_id,
+      );
+      return;
+    }
+
+    const userName = parts[2];
+    const reason = parts.slice(3).join(' ');
+
+    try {
+      const user = await this.adminService.getUserByUsername(userName);
+      if (!user) {
+        await this.userService.sendSystemMessage(
+          data.channel_id,
+          `❌ user name ${userName} chưa có khoản vay hoặc không tồn tại trong hệ thống!`,
+          data.message_id,
+        );
+        return;
+      }
+
+      const userId = user.id;
+
+      await this.adminService.warnUser(
+        userName,
+        data.channel_id,
+        data.sender_id,
+        reason,
+      );
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `⚠️ Đã cảnh báo user ${user.username} (${userId}) - Lý do: ${reason}`,
+        data.message_id,
+      );
+    } catch (error) {
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
+    }
+  }
 
   private async handleApproveCommand(data: ChannelMessage, parts: string[]) {
     if (parts.length < 3) {
-      await this.userService.sendSystemMessage(data.channel_id, '❌ Sử dụng: $admin approve <loan_id>', data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Sử dụng: $admin approve <loan_id>',
+        data.message_id,
+      );
       return;
     }
-    
+
     const loanId = parts[2];
-    
+
     try {
       const loan = await this.adminService.getLoanById(loanId);
       if (!loan) {
-        await this.userService.sendSystemMessage(data.channel_id, `❌ Không tìm thấy khoản vay với ID: ${loanId}`, data.message_id);
+        await this.userService.sendSystemMessage(
+          data.channel_id,
+          `❌ Không tìm thấy khoản vay với ID: ${loanId}`,
+          data.message_id,
+        );
         return;
       }
-      
+
       await this.adminService.approveLoan(loanId, data.sender_id);
-      await this.userService.sendSystemMessage(data.channel_id, `✅ Đã phê duyệt khoản vay ${loanId} của user ${loan.user.username} (${loan.user.userId}) - Số tiền: ${loan.amount}`, data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `✅ Đã phê duyệt khoản vay ${loanId} của user ${loan.user.username} (${loan.user.userId}) - Số tiền: ${loan.amount}`,
+        data.message_id,
+      );
     } catch (error) {
-      await this.userService.sendSystemMessage(data.channel_id, `❌ Lỗi: ${error.message}`, data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
     }
   }
 
   private async handleRejectCommand(data: ChannelMessage, parts: string[]) {
     if (parts.length < 3) {
-      await this.userService.sendSystemMessage(data.channel_id, '❌ Sử dụng: $admin reject <loan_id> [lý do]', data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Sử dụng: $admin reject <loan_id> [lý do]',
+        data.message_id,
+      );
       return;
     }
-    
+
     const loanId = parts[2];
     const reason = parts.slice(3).join(' ');
-    
+
     try {
       const loan = await this.adminService.getLoanById(loanId);
       if (!loan) {
-        await this.userService.sendSystemMessage(data.channel_id, `❌ Không tìm thấy khoản vay với ID: ${loanId}`, data.message_id);
+        await this.userService.sendSystemMessage(
+          data.channel_id,
+          `❌ Không tìm thấy khoản vay với ID: ${loanId}`,
+          data.message_id,
+        );
         return;
       }
-      
+
       await this.adminService.rejectLoan(loanId, data.sender_id, reason);
-      await this.userService.sendSystemMessage(data.channel_id, `❌ Đã từ chối khoản vay ${loanId} của user ${loan.user.username} (${loan.user.userId}) - Số tiền: ${loan.amount}${reason ? ` - Lý do: ${reason}` : ''}`, data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Đã từ chối khoản vay ${loanId} của user ${loan.user.username} (${loan.user.userId}) - Số tiền: ${loan.amount}${reason ? ` - Lý do: ${reason}` : ''}`,
+        data.message_id,
+      );
     } catch (error) {
-      await this.userService.sendSystemMessage(data.channel_id, `❌ Lỗi: ${error.message}`, data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
     }
   }
 
   private async handleCreditCommand(data: ChannelMessage, parts: string[]) {
     if (parts.length < 4) {
-      await this.userService.sendSystemMessage(data.channel_id, '❌ Sử dụng: $admin credit <user_id> <điểm_mới>', data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Sử dụng: $admin credit <user_name> <điểm_mới>',
+        data.message_id,
+      );
       return;
     }
-    
-    const userId = parts[2];
+
+    const userName = parts[2];
+
     const newScore = parseInt(parts[3]);
-    
+
     try {
-      const user = await this.adminService.getUserById(userId);
+      const user = await this.adminService.getUserByUsername(userName);
       if (!user) {
-        await this.userService.sendSystemMessage(data.channel_id, `❌ Không tìm thấy user với ID: ${userId}`, data.message_id);
+        await this.userService.sendSystemMessage(
+          data.channel_id,
+          `❌ Sử dụng: user ${userName} chưa vay vốn hoặc không tồn tại trong hệ thống vui!`,
+          data.message_id,
+        );
         return;
       }
-      
+
+      const userId = user.id;
+
+      if (!user) {
+        await this.userService.sendSystemMessage(
+          data.channel_id,
+          `❌ Không tìm thấy user với ID: ${userId}`,
+          data.message_id,
+        );
+        return;
+      }
+
       const oldScore = user.creditScore;
-      await this.adminService.adjustCreditScore(userId, newScore, data.sender_id);
-      await this.userService.sendSystemMessage(data.channel_id, `✅ Đã điều chỉnh điểm tín dụng của user ${user.username} (${userId}) từ ${oldScore} → ${newScore}`, data.message_id);
+      await this.adminService.adjustCreditScore(
+        userId,
+        newScore,
+        data.sender_id,
+      );
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `✅ Đã điều chỉnh điểm tín dụng của user ${user.username} (${userId}) từ ${oldScore} → ${newScore}`,
+        data.message_id,
+      );
     } catch (error) {
-      await this.userService.sendSystemMessage(data.channel_id, `❌ Lỗi: ${error.message}`, data.message_id);
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
     }
   }
 
   private async showAdminHelp(data: ChannelMessage) {
-    const message = `🛠️ Lệnh Admin:\n` +
+    const message =
+      `🛠️ Lệnh Admin:\n` +
       `📊 $admin stats - Thống kê hệ thống\n` +
       `📋 $admin loans - Xem khoản vay chờ phê duyệt\n` +
       `👥 $admin users - Xem danh sách users\n` +
       `🔍 $admin find <tên_hoặc_id> - Tìm kiếm user\n` +
-      `🚫 $admin kick <user_id> [lý do] - Kick user\n` +
-      `⚠️ $admin warn <user_id> <lý do> - Cảnh báo user\n` +
+      `🚫 $admin kick <user_name> [lý do] - Kick user\n` +
+      `⚠️ $admin warn <user_name> <lý do> - Cảnh báo user\n` +
       `✅ $admin approve <loan_id> - Phê duyệt khoản vay\n` +
       `❌ $admin reject <loan_id> [lý do] - Từ chối khoản vay\n` +
-      `💳 $admin credit <user_id> <điểm> - Điều chỉnh điểm tín dụng`;
-    
-    await this.userService.sendSystemMessage(data.channel_id, message, data.message_id);
+      `💳 $admin credit <user_name> <điểm> - Điều chỉnh điểm tín dụng`;
+
+    await this.userService.sendSystemMessage(
+      data.channel_id,
+      message,
+      data.message_id,
+    );
   }
 }

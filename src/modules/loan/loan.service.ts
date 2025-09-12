@@ -1,13 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ChannelMessage, EButtonMessageStyle } from 'mezon-sdk';
-import { MAX_LOAN_AMOUNTS } from 'src/constant';
+import {
+  ChannelMessage,
+  EButtonMessageStyle,
+  EMessageComponentType,
+} from 'mezon-sdk';
+import { ADMIN_IDS, ID_ADMIN3, MAX_LOAN_AMOUNTS } from 'src/constant';
 import { Loans, Users } from 'src/entities';
 import { formatVND } from 'src/shared/helper';
 import { MezonService } from 'src/shared/mezon/mezon.service';
 import {
   EMessagePayloadType,
   EMessageType,
+  MessageButtonClickedEvent,
 } from 'src/shared/mezon/types/mezon.type';
 import { LoanStatus, PaymentStatus } from 'src/types';
 import { ButtonKey } from 'src/types/helper.type';
@@ -23,18 +28,30 @@ export class LoanService {
     private mezonService: MezonService,
   ) {}
 
+  private tempLoans = new Map<
+    string,
+    {
+      userId: string;
+      username: string;
+      amount: string;
+      interestRate: number;
+      term: number;
+      messageId: string;
+    }
+  >();
+
   createButtonUserClick() {
     return [
       {
         components: [
           {
             id: ButtonKey.ACCEPT,
-            type: EMessagePayloadType.SYSTEM,
+            type: EMessageComponentType.BUTTON,
             component: { label: 'OK', style: EButtonMessageStyle.PRIMARY },
           },
           {
             id: ButtonKey.CANCEL,
-            type: EMessagePayloadType.SYSTEM,
+            type: EMessageComponentType.BUTTON,
             component: { label: 'Hủy bỏ', style: EButtonMessageStyle.DANGER },
           },
         ],
@@ -211,18 +228,6 @@ export class LoanService {
 
     const loanDetails = this.calculateEMI(amount, finalRate, term);
 
-    const loan = await this.loansRepository.save(
-      this.loansRepository.create({
-        userId: String(userId),
-        amount: String(amount),
-        interstRate: finalRate,
-        term,
-        status: LoanStatus.PENDING,
-        startDate: new Date(),
-        endDate: new Date(Date.now() + term * 30 * 24 * 60 * 60 * 1000),
-      }),
-    );
-
     const scheduleMessage = loanDetails.schedule
       .map(
         (payment, index) =>
@@ -242,7 +247,7 @@ export class LoanService {
 ${scheduleMessage}
 ✅ Xác nhận khoản vay của bạn`;
 
-    await this.mezonService.sendMessage({
+    const messageResponse = await this.mezonService.sendMessage({
       type: EMessageType.CHANNEL,
       reply_to_message_id: data.message_id,
       payload: {
@@ -257,7 +262,16 @@ ${scheduleMessage}
       },
     });
 
-    return loan;
+    this.tempLoans.set(messageResponse.message_id, {
+      userId: String(userId),
+      username: data.username || '',
+      amount: String(amount),
+      interestRate: finalRate,
+      term,
+      messageId: messageResponse.message_id,
+    });
+
+    return {};
   }
 
   async getLoanStatus(data: ChannelMessage) {
@@ -333,5 +347,362 @@ ${scheduleMessage}
         },
       },
     });
+  }
+
+  async getLoanActive(data: ChannelMessage) {
+    const activeLoans = await this.loansRepository.find({
+      where: { status: LoanStatus.APPROVED },
+      relations: ['user', 'payments'],
+      order: { startDate: 'DESC' },
+    });
+
+    if (activeLoans.length === 0) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
+        payload: {
+          channel_id: data.channel_id,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content: '📊 Hiện không có khoản vay nào đang hoạt động',
+          },
+        },
+      });
+      return;
+    }
+
+    const loansMessage = activeLoans
+      .map((loan) => {
+        const paidPayments = loan.payments.filter(
+          (p) => p.status === PaymentStatus.PAID,
+        );
+        const totalPaid = paidPayments.reduce(
+          (sum, p) => sum + Number(p.amount),
+          0,
+        );
+        const remainingAmount = Number(loan.amount) - totalPaid;
+
+        return `
+👤 User: ${loan.user.username} (${loan.user.userId})
+💰 Số tiền vay: ${formatVND(Number(loan.amount))}
+💸 Đã trả: ${formatVND(totalPaid)}
+⚖️ Còn lại: ${formatVND(remainingAmount)}
+📅 Ngày vay: ${loan.startDate.toLocaleDateString()}
+⏳ Thời hạn: ${loan.term} tháng
+📊 Trạng thái: ${loan.status}`;
+      })
+      .join('\n\n---\n');
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.CHANNEL,
+      reply_to_message_id: data.message_id,
+      payload: {
+        channel_id: data.channel_id,
+        message: {
+          type: EMessagePayloadType.SYSTEM,
+          content: `📊 Danh sách khoản vay đang hoạt động:\n${loansMessage}`,
+        },
+      },
+    });
+  }
+
+  async getPaymentSchedule(data: ChannelMessage, username?: string) {
+    if (username) {
+      const user = await this.userRepository.findOne({
+        where: { username },
+      });
+
+      if (!user) {
+        await this.mezonService.sendMessage({
+          type: EMessageType.CHANNEL,
+          reply_to_message_id: data.message_id,
+          payload: {
+            channel_id: data.channel_id,
+            message: {
+              type: EMessagePayloadType.SYSTEM,
+              content: `❌ Không tìm thấy user: ${username}`,
+            },
+          },
+        });
+        return;
+      }
+
+      // Get loan for specified user
+      const activeLoan = await this.loansRepository.findOne({
+        where: {
+          userId: user.userId,
+          status: LoanStatus.APPROVED,
+        },
+        relations: ['payments'],
+        order: { startDate: 'DESC' },
+      });
+
+      if (!activeLoan) {
+        await this.mezonService.sendMessage({
+          type: EMessageType.CHANNEL,
+          reply_to_message_id: data.message_id,
+          payload: {
+            channel_id: data.channel_id,
+            message: {
+              type: EMessagePayloadType.SYSTEM,
+              content: `❌ User ${username} không có khoản vay đang hoạt động!`,
+            },
+          },
+        });
+        return;
+      }
+
+      await this.sendPaymentSchedule(data, activeLoan, username);
+    } else {
+      const activeLoan = await this.loansRepository.findOne({
+        where: {
+          userId: data.sender_id,
+          status: LoanStatus.APPROVED,
+        },
+        relations: ['payments'],
+        order: { startDate: 'DESC' },
+      });
+
+      if (!activeLoan) {
+        await this.mezonService.sendMessage({
+          type: EMessageType.CHANNEL,
+          reply_to_message_id: data.message_id,
+          payload: {
+            channel_id: data.channel_id,
+            message: {
+              type: EMessagePayloadType.SYSTEM,
+              content: '❌ Bạn không có khoản vay đang hoạt động nào!',
+            },
+          },
+        });
+        return;
+      }
+
+      await this.sendPaymentSchedule(data, activeLoan);
+    }
+  }
+
+  private async sendPaymentSchedule(
+    data: ChannelMessage,
+    loan: Loans,
+    username?: string,
+  ) {
+    const sortedPayments = loan.payments.sort(
+      (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime(),
+    );
+
+    const totalPaid = sortedPayments
+      .filter((p) => p.status === PaymentStatus.PAID)
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+
+    const scheduleMessage = sortedPayments
+      .map((payment, index) => {
+        const dueDate = new Date(payment.dueDate).toLocaleDateString();
+        const statusEmoji = {
+          [PaymentStatus.PAID]: '✅',
+          [PaymentStatus.PENDING]: '⏳',
+          [PaymentStatus.OVERDUE]: '❌',
+          [PaymentStatus.MINIMUM_PAID]: '⚠️',
+        };
+
+        return `${statusEmoji[payment.status]} Kỳ ${index + 1} - ${dueDate}:
+\t💰 Số tiền: ${formatVND(Number(payment.amount))}
+\t💳 Tối thiểu: ${formatVND(Number(payment.minimumAmount))}
+\t📊 Trạng thái: ${payment.status.toUpperCase()}${
+          payment.paidDate
+            ? `\n\t📅 Ngày thanh toán: ${new Date(payment.paidDate).toLocaleDateString()}`
+            : ''
+        }`;
+      })
+      .join('\n\n');
+
+    const message = `📋 Lịch trả nợ khoản vay #${loan.id}${username ? ` của ${username}` : ''}:
+💵 Số tiền vay: ${formatVND(Number(loan.amount))}
+💰 Đã trả: ${formatVND(totalPaid)}
+⚖️ Còn lại: ${formatVND(Number(loan.amount) - totalPaid)}
+📅 Ngày vay: ${loan.startDate.toLocaleDateString()}
+⏳ Kỳ hạn: ${loan.term} tháng
+💫 Lãi suất: ${loan.interstRate}%/năm
+
+${scheduleMessage}
+
+📝 Chú thích:
+✅ Đã thanh toán
+⏳ Chờ thanh toán
+❌ Quá hạn
+⚠️ Thanh toán tối thiểu`;
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.CHANNEL,
+      reply_to_message_id: data.message_id,
+      payload: {
+        channel_id: data.channel_id,
+        message: {
+          type: EMessagePayloadType.SYSTEM,
+          content: message,
+        },
+      },
+    });
+  }
+
+  async handleAcceptLoanByUser(data: MessageButtonClickedEvent) {
+    const tempLoan = this.tempLoans.get(data.message_id);
+
+    if (!tempLoan) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
+        payload: {
+          channel_id: data.channel_id,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content: '❌ Không tìm thấy thông tin khoản vay hoặc đã hết hạn!',
+          },
+        },
+      });
+      return;
+    }
+
+    const loan = await this.loansRepository.save(
+      this.loansRepository.create({
+        userId: tempLoan.userId,
+        amount: tempLoan.amount,
+        interstRate: tempLoan.interestRate,
+        term: tempLoan.term,
+        status: LoanStatus.PENDING,
+        startDate: new Date(),
+        endDate: new Date(
+          Date.now() + tempLoan.term * 30 * 24 * 60 * 60 * 1000,
+        ),
+        timestamp: {
+          createdById: tempLoan.userId,
+        },
+      }),
+    );
+
+    this.tempLoans.delete(data.message_id);
+
+    await this.mezonService.updateMessage({
+      channel_id: data.channel_id,
+      message_id: data.message_id,
+      content: {
+        type: EMessagePayloadType.OPTIONAL,
+        content: {
+          t: '✅ Bạn đã xác nhận khoản vay, vui lòng chờ admin duyệt khoản vay của bạn!',
+        },
+      },
+    });
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.DM,
+      payload: {
+        clan_id: '0',
+        user_id: ID_ADMIN3,
+        message: {
+          type: EMessagePayloadType.SYSTEM,
+          content: `🔔 Có yêu cầu vay mới cần duyệt:
+- User ID: ${tempLoan.userId}
+- User Name: ${tempLoan.username}
+- Số tiền: ${formatVND(Number(tempLoan.amount))}
+- Kỳ hạn: ${tempLoan.term} tháng
+- Lãi suất: ${tempLoan.interestRate}%/năm
+- Loan ID: ${loan.id}
+
+Sử dụng lệnh $admin approve ${loan.id} để duyệt khoản vay,
+Sử dụng lệnh $admin reject ${loan.id} <reason> để từ chối khoản vay`,
+        },
+      },
+    });
+  }
+
+  async handleLoanApproval(loanId: string, adminId: string) {
+    const loan = await this.loansRepository.findOne({
+      where: { id: loanId },
+      relations: ['user'],
+    });
+
+    if (!loan) {
+      throw new Error('Loan not found');
+    }
+
+    loan.status = LoanStatus.APPROVED;
+    await this.loansRepository.save(loan);
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.DM,
+      payload: {
+        clan_id: '0',
+        user_id: loan.userId,
+        message: {
+          type: EMessagePayloadType.SYSTEM,
+          content: `✅ Khoản vay của bạn đã được duyệt:
+- Số tiền vay: ${formatVND(Number(loan.amount))}
+- Kỳ hạn: ${loan.term} tháng
+- Lãi suất: ${loan.interstRate}%/năm
+- Loan ID: ${loan.id}
+
+💡 Hệ thống sẽ nhắc nhở bạn khi đến hạn thanh toán.
+⚠️ Thanh toán đúng hạn để duy trì điểm tín dụng tốt!`,
+        },
+      },
+    });
+  }
+
+  async handleLoanRejection(loanId: string, adminId: string, reason: string) {
+    const loan = await this.loansRepository.findOne({
+      where: { id: loanId },
+      relations: ['user'],
+    });
+
+    if (!loan) {
+      throw new Error('Loan not found');
+    }
+
+    loan.status = LoanStatus.REJECTED;
+    await this.loansRepository.save(loan);
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.DM,
+      payload: {
+        clan_id: '0',
+        user_id: loan.userId,
+        message: {
+          type: EMessagePayloadType.SYSTEM,
+          content: `❌ Khoản vay của bạn đã bị từ chối:
+- Số tiền vay: ${formatVND(Number(loan.amount))}
+- Kỳ hạn: ${loan.term} tháng
+- Loan ID: ${loan.id}
+${reason ? `\n📝 Lý do: ${reason}` : ''}
+
+💡 Bạn có thể tạo yêu cầu vay mới với số tiền hoặc kỳ hạn khác.`,
+        },
+      },
+    });
+  }
+
+  async handleCancelLoanByUser(data: MessageButtonClickedEvent) {
+    this.tempLoans.delete(data.message_id);
+
+    return this.mezonService.updateMessage({
+      channel_id: data.channel_id,
+      message_id: data.message_id,
+      content: {
+        type: EMessagePayloadType.OPTIONAL,
+        content: {
+          t: '❌ Bạn đã hủy yêu cầu vay tiền!',
+        },
+      },
+    });
+  }
+
+  async handleCLickButton(data: MessageButtonClickedEvent) {
+    switch (data.button_id) {
+      case ButtonKey.ACCEPT.toString():
+        return this.handleAcceptLoanByUser(data);
+      case ButtonKey.CANCEL.toString():
+        return this.handleCancelLoanByUser(data);
+      default:
+        return;
+    }
   }
 }

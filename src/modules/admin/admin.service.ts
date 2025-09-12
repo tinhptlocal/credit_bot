@@ -1,10 +1,24 @@
-import { Injectable, ForbiddenException, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
-import { Users, Roles, UserRoles, Loans, Transactions, Payments } from 'src/entities';
-import { LoanStatus } from 'src/types';
-import { MezonService } from 'src/shared/mezon/mezon.service';
 import { ADMIN_IDS } from 'src/constant/index';
+import {
+  Loans,
+  Payments,
+  Roles,
+  Transactions,
+  UserRoles,
+  Users,
+} from 'src/entities';
+import { MezonService } from 'src/shared/mezon/mezon.service';
+import { LoanStatus } from 'src/types';
+import { Between, Repository } from 'typeorm';
+import { LoanService } from '../loan/loan.service';
 import { UserService } from '../user/user.service';
 
 @Injectable()
@@ -26,6 +40,7 @@ export class AdminService implements OnModuleInit {
     private readonly paymentRepository: Repository<Payments>,
     private readonly mezonService: MezonService,
     private readonly userService: UserService,
+    private readonly loanService: LoanService,
   ) {}
 
   async onModuleInit() {
@@ -43,7 +58,9 @@ export class AdminService implements OnModuleInit {
   }
 
   async assignRole(userId: string, roleName: string): Promise<UserRoles> {
-    const role = await this.roleRepository.findOne({ where: { name: roleName } });
+    const role = await this.roleRepository.findOne({
+      where: { name: roleName },
+    });
     if (!role) {
       throw new NotFoundException(`Role ${roleName} not found`);
     }
@@ -59,8 +76,8 @@ export class AdminService implements OnModuleInit {
     const users = await this.userRepository.find({
       relations: ['userRoles', 'userRoles.role', 'loans'],
     });
-    
-    return users.filter(user => !this.isBotUser(user));
+
+    return users.filter((user) => !this.isBotUser(user));
   }
 
   async getUserById(userId: string): Promise<Users> {
@@ -74,16 +91,30 @@ export class AdminService implements OnModuleInit {
     return user;
   }
 
+  async getUserByUsername(username: string): Promise<Users | null> {
+    const user = await this.userRepository.findOne({
+      where: { username },
+    });
+
+    if (!user) return null;
+
+    return user;
+  }
+
   async searchUsers(searchTerm: string): Promise<Users[]> {
     const users = await this.userRepository
       .createQueryBuilder('user')
       .leftJoinAndSelect('user.userRoles', 'userRoles')
       .leftJoinAndSelect('userRoles.role', 'role')
       .leftJoinAndSelect('user.loans', 'loans')
-      .where('user.username ILIKE :searchTerm', { searchTerm: `%${searchTerm}%` })
-      .orWhere('user.userId ILIKE :searchTerm', { searchTerm: `%${searchTerm}%` })
+      .where('user.username ILIKE :searchTerm', {
+        searchTerm: `%${searchTerm}%`,
+      })
+      .orWhere('user.userId ILIKE :searchTerm', {
+        searchTerm: `%${searchTerm}%`,
+      })
       .getMany();
-    return users.filter(user => !this.isBotUser(user));
+    return users.filter((user) => !this.isBotUser(user));
   }
 
   async updateUser(userId: string, updateData: Partial<Users>): Promise<Users> {
@@ -97,7 +128,11 @@ export class AdminService implements OnModuleInit {
     await this.userRepository.remove(user);
   }
 
-  async adjustCreditScore(userId: string, newScore: number, adminId: string): Promise<Users> {
+  async adjustCreditScore(
+    userId: string,
+    newScore: number,
+    adminId: string,
+  ): Promise<Users> {
     if (!(await this.isAdmin(adminId))) {
       throw new ForbiddenException('Only admins can adjust credit scores');
     }
@@ -131,10 +166,16 @@ export class AdminService implements OnModuleInit {
     loan.startDate = new Date();
     loan.endDate = new Date(Date.now() + loan.term * 24 * 60 * 60 * 1000);
 
+    await this.loanService.handleLoanApproval(loanId, adminId);
+
     return await this.loanRepository.save(loan);
   }
 
-  async rejectLoan(loanId: string, adminId: string, reason?: string): Promise<Loans> {
+  async rejectLoan(
+    loanId: string,
+    adminId: string,
+    reason?: string,
+  ): Promise<Loans> {
     if (!(await this.isAdmin(adminId))) {
       throw new ForbiddenException('Only admins can reject loans');
     }
@@ -148,10 +189,16 @@ export class AdminService implements OnModuleInit {
     }
 
     loan.status = LoanStatus.REJECTED;
+    await this.loanService.handleLoanRejection(loanId, adminId, reason || '');
+
     return await this.loanRepository.save(loan);
   }
 
-  async banUser(userId: string, adminId: string, reason?: string): Promise<void> {
+  async banUser(
+    userId: string,
+    adminId: string,
+    reason?: string,
+  ): Promise<void> {
     if (!(await this.isAdmin(adminId))) {
       throw new ForbiddenException('Only admins can ban users');
     }
@@ -200,7 +247,11 @@ export class AdminService implements OnModuleInit {
     };
   }
 
-  async sendNotificationToUser(userId: string, message: string, channelId: string): Promise<void> {
+  async sendNotificationToUser(
+    userId: string,
+    message: string,
+    channelId: string,
+  ): Promise<void> {
     await this.userService.sendSystemMessage(channelId, message);
   }
 
@@ -212,19 +263,21 @@ export class AdminService implements OnModuleInit {
   }
 
   private isBotUser(user: Users): boolean {
-    return user.username?.includes('credit') || 
-           user.username?.includes('bot') ||
-           user.userId === process.env.BOT_ID;
+    return (
+      user.username?.includes('credit') ||
+      user.username?.includes('bot') ||
+      user.userId === process.env.BOT_ID
+    );
   }
 
   private async initializeDefaultRoles(): Promise<void> {
     try {
       const existingRoles = await this.roleRepository.find();
-      
+
       if (existingRoles.length === 0) {
         const adminRole = this.roleRepository.create({ name: 'admin' });
         const userRole = this.roleRepository.create({ name: 'user' });
-        
+
         await this.roleRepository.save([adminRole, userRole]);
         this.logger.log('Default roles created successfully');
       } else {
@@ -237,10 +290,14 @@ export class AdminService implements OnModuleInit {
 
   private async initializeDefaultAdmin(): Promise<void> {
     try {
-      const adminRole = await this.roleRepository.findOne({ where: { name: 'admin' } });
-      
+      const adminRole = await this.roleRepository.findOne({
+        where: { name: 'admin' },
+      });
+
       if (!adminRole) {
-        this.logger.warn('Admin role not found, cannot initialize default admin');
+        this.logger.warn(
+          'Admin role not found, cannot initialize default admin',
+        );
         return;
       }
 
@@ -275,8 +332,10 @@ export class AdminService implements OnModuleInit {
   }
 
   async createAdmin(username: string, userId: string): Promise<Users> {
-    const adminRole = await this.roleRepository.findOne({ where: { name: 'admin' } });
-    
+    const adminRole = await this.roleRepository.findOne({
+      where: { name: 'admin' },
+    });
+
     if (!adminRole) {
       throw new Error('Admin role not found');
     }
@@ -296,14 +355,16 @@ export class AdminService implements OnModuleInit {
     });
 
     await this.userRoleRepository.save(adminUserRole);
-    
+
     this.logger.log(`New admin created: ${username} (${userId})`);
     return savedAdmin;
   }
 
   async removeAdmin(userId: string): Promise<void> {
-    const adminRole = await this.roleRepository.findOne({ where: { name: 'admin' } });
-    
+    const adminRole = await this.roleRepository.findOne({
+      where: { name: 'admin' },
+    });
+
     if (!adminRole) {
       throw new Error('Admin role not found');
     }
@@ -318,38 +379,52 @@ export class AdminService implements OnModuleInit {
     }
   }
 
-  async kickUser(userId: string, channelId: string, adminId: string, reason?: string): Promise<void> {
+  async kickUser(
+    username: string,
+    channelId: string,
+    adminId: string,
+    reason?: string,
+  ): Promise<void> {
     if (!(await this.isAdmin(adminId))) {
       throw new ForbiddenException('Only admins can kick users');
     }
 
-    const user = await this.userRepository.findOne({ where: { userId } });
+    const user = await this.userRepository.findOne({ where: { username } });
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
+      throw new NotFoundException(`User name ${username} not found`);
     }
 
-    const message = reason 
+    const message = reason
       ? `🚫 User ${user.username} has been kicked from the channel. Reason: ${reason}`
       : `🚫 User ${user.username} has been kicked from the channel.`;
 
     await this.userService.sendSystemMessage(channelId, message);
   }
 
-  async warnUser(userId: string, channelId: string, adminId: string, reason: string): Promise<void> {
+  async warnUser(
+    username: string,
+    channelId: string,
+    adminId: string,
+    reason: string,
+  ): Promise<void> {
     if (!(await this.isAdmin(adminId))) {
       throw new ForbiddenException('Only admins can warn users');
     }
 
-    const user = await this.userRepository.findOne({ where: { userId } });
+    const user = await this.userRepository.findOne({ where: { username } });
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
+      throw new NotFoundException(`User name ${username} not found`);
     }
 
     const message = `⚠️ Warning: User ${user.username} has been warned. Reason: ${reason}`;
     await this.userService.sendSystemMessage(channelId, message);
   }
 
-  async setChannelTopic(channelId: string, adminId: string, topic: string): Promise<void> {
+  async setChannelTopic(
+    channelId: string,
+    adminId: string,
+    topic: string,
+  ): Promise<void> {
     if (!(await this.isAdmin(adminId))) {
       throw new ForbiddenException('Only admins can set channel topic');
     }
@@ -376,9 +451,15 @@ export class AdminService implements OnModuleInit {
     await this.userService.sendSystemMessage(channelId, message);
   }
 
-  async emergencyShutdown(channelId: string, adminId: string, reason: string): Promise<void> {
+  async emergencyShutdown(
+    channelId: string,
+    adminId: string,
+    reason: string,
+  ): Promise<void> {
     if (!(await this.isAdmin(adminId))) {
-      throw new ForbiddenException('Only admins can perform emergency shutdown');
+      throw new ForbiddenException(
+        'Only admins can perform emergency shutdown',
+      );
     }
 
     const message = `🚨 EMERGENCY SHUTDOWN: ${reason}. All services are temporarily disabled.`;
@@ -387,13 +468,9 @@ export class AdminService implements OnModuleInit {
 
   async getSystemOverview(): Promise<any> {
     const allUsers = await this.userRepository.find();
-    const filteredUsers = allUsers.filter(user => !this.isBotUser(user));
+    const filteredUsers = allUsers.filter((user) => !this.isBotUser(user));
 
-    const [
-      totalLoans,
-      totalTransactions,
-      totalPayments,
-    ] = await Promise.all([
+    const [totalLoans, totalTransactions, totalPayments] = await Promise.all([
       this.loanRepository.count(),
       this.transactionRepository.count(),
       this.paymentRepository.count(),
@@ -427,8 +504,13 @@ export class AdminService implements OnModuleInit {
     const totalLoanAmount = await this.loanRepository
       .createQueryBuilder('loan')
       .select('SUM(CAST(loan.amount AS BIGINT))', 'total')
-      .where('loan.status IN (:...statuses)', { 
-        statuses: [LoanStatus.APPROVED, LoanStatus.REPAID, LoanStatus.OVERDUE, LoanStatus.DUE] 
+      .where('loan.status IN (:...statuses)', {
+        statuses: [
+          LoanStatus.APPROVED,
+          LoanStatus.REPAID,
+          LoanStatus.OVERDUE,
+          LoanStatus.DUE,
+        ],
       })
       .getRawOne();
 
@@ -454,19 +536,31 @@ export class AdminService implements OnModuleInit {
 
   async getUserStatistics(): Promise<any> {
     const allUsers = await this.userRepository.find();
-    const filteredUsers = allUsers.filter(user => !this.isBotUser(user));
+    const filteredUsers = allUsers.filter((user) => !this.isBotUser(user));
 
     const totalUsers = filteredUsers.length;
 
-    const excellentUsers = filteredUsers.filter(user => user.creditScore >= 800 && user.creditScore <= 1000).length;
-    const goodUsers = filteredUsers.filter(user => user.creditScore >= 650 && user.creditScore <= 799).length;
-    const fairUsers = filteredUsers.filter(user => user.creditScore >= 500 && user.creditScore <= 649).length;
-    const poorUsers = filteredUsers.filter(user => user.creditScore >= 300 && user.creditScore <= 499).length;
-    const veryPoorUsers = filteredUsers.filter(user => user.creditScore >= 0 && user.creditScore <= 299).length;
+    const excellentUsers = filteredUsers.filter(
+      (user) => user.creditScore >= 800 && user.creditScore <= 1000,
+    ).length;
+    const goodUsers = filteredUsers.filter(
+      (user) => user.creditScore >= 650 && user.creditScore <= 799,
+    ).length;
+    const fairUsers = filteredUsers.filter(
+      (user) => user.creditScore >= 500 && user.creditScore <= 649,
+    ).length;
+    const poorUsers = filteredUsers.filter(
+      (user) => user.creditScore >= 300 && user.creditScore <= 499,
+    ).length;
+    const veryPoorUsers = filteredUsers.filter(
+      (user) => user.creditScore >= 0 && user.creditScore <= 299,
+    ).length;
 
-    const avgCreditScore = filteredUsers.length > 0 
-      ? filteredUsers.reduce((sum, user) => sum + user.creditScore, 0) / filteredUsers.length
-      : 0;
+    const avgCreditScore =
+      filteredUsers.length > 0
+        ? filteredUsers.reduce((sum, user) => sum + user.creditScore, 0) /
+          filteredUsers.length
+        : 0;
 
     return {
       totalUsers,
@@ -494,13 +588,9 @@ export class AdminService implements OnModuleInit {
       },
     });
 
-    const filteredUsers = usersInPeriod.filter(user => !this.isBotUser(user));
+    const filteredUsers = usersInPeriod.filter((user) => !this.isBotUser(user));
 
-    const [
-      newLoans,
-      newTransactions,
-      newPayments,
-    ] = await Promise.all([
+    const [newLoans, newTransactions, newPayments] = await Promise.all([
       this.loanRepository.count({
         where: {
           timestamp: {
@@ -538,7 +628,7 @@ export class AdminService implements OnModuleInit {
       .createQueryBuilder('user')
       .getMany();
 
-    const filteredUsers = allUsers.filter(user => !this.isBotUser(user));
+    const filteredUsers = allUsers.filter((user) => !this.isBotUser(user));
 
     const topUsersByBalance = filteredUsers
       .sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
@@ -549,13 +639,13 @@ export class AdminService implements OnModuleInit {
       .slice(0, limit);
 
     return {
-      byBalance: topUsersByBalance.map(user => ({
+      byBalance: topUsersByBalance.map((user) => ({
         userId: user.userId,
         username: user.username,
         balance: user.balance,
         creditScore: user.creditScore,
       })),
-      byCreditScore: topUsersByCreditScore.map(user => ({
+      byCreditScore: topUsersByCreditScore.map((user) => ({
         userId: user.userId,
         username: user.username,
         balance: user.balance,
@@ -573,14 +663,16 @@ export class AdminService implements OnModuleInit {
       where: { status: LoanStatus.APPROVED },
     });
 
-    const riskRatio = totalActiveLoans > 0 ? (overdueLoans / totalActiveLoans) * 100 : 0;
+    const riskRatio =
+      totalActiveLoans > 0 ? (overdueLoans / totalActiveLoans) * 100 : 0;
 
     const lowCreditUsers = await this.userRepository.count({
       where: { creditScore: Between(0, 499) },
     });
 
     const totalUsers = await this.userRepository.count();
-    const lowCreditRatio = totalUsers > 0 ? (lowCreditUsers / totalUsers) * 100 : 0;
+    const lowCreditRatio =
+      totalUsers > 0 ? (lowCreditUsers / totalUsers) * 100 : 0;
 
     return {
       overdueLoans,

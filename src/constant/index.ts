@@ -7,6 +7,8 @@ export const CHECK_BALANCE_MESSAGE = 'kttk';
 export const WITH_DRAW = 'rut';
 export const LOANS = 'vay';
 export const LOANS_CHECK = 'ktvay';
+export const CHECK_LOAN_ACTICE = 'loan_check';
+export const PAYMENT_CHECK_SCHEDULE = 'credit_check';
 
 // Admin Commands
 export const ADMIN_PREFIX = `${STARTED_MESSAGE}admin`;
@@ -23,7 +25,7 @@ export const ADMIN_CREDIT = 'credit';
 export const ADMIN_FIND = 'find';
 export const ID_ADMIN1 = '1929454908461813760';
 export const ID_ADMIN2 = '1840656224442388480';
-export const ID_ADMIN3 = 'YOUR_NEW_ADMIN_USER_ID_HERE';
+export const ID_ADMIN3 = '1930090353453436928';
 
 const fromEnv = (process.env.ADMIN_IDS || '')
   .split(',')
@@ -32,7 +34,7 @@ const fromEnv = (process.env.ADMIN_IDS || '')
 
 export const ADMIN_IDS = fromEnv.length
   ? fromEnv
-  : [ ID_ADMIN1, ID_ADMIN2, ID_ADMIN3];
+  : [ID_ADMIN1, ID_ADMIN2, ID_ADMIN3];
 
 export const EMPTY_BALANCE_MESSAGES = [
   `Pay more for love!`,
