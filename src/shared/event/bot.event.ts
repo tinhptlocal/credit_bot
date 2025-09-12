@@ -5,7 +5,16 @@ import {
   CHECK_BALANCE_MESSAGE,
   LOANS,
   LOANS_CHECK,
+  LOANS_LIST,
   OPTION_LOAN_TERMS,
+  PAYMENT_HISTORY,
+  PAYMENT_UPCOMING,
+  PAYMENT_PAY,
+  PAYMENT_OVERDUE,
+  PAYMENT_LIST,
+  PAYMENT_EARLY,
+  PAYMENT_CONFIRM,
+  HELP,
   STARTED_MESSAGE,
   STARTED_MESSAGE_WITH_BOT_NAME,
   WITH_DRAW,
@@ -21,10 +30,12 @@ import {
   ADMIN_USERS,
   ADMIN_CREDIT,
   ADMIN_FIND,
-  CHECK_LOAN_ACTICE,
+  ADMIN_GENERATE_PAYMENTS,
+  ADMIN_WITHDRAW,
+  ADMIN_IDS,
   PAYMENT_CHECK_SCHEDULE,
+  CHECK_LOAN_ACTICE,
 } from 'src/constant';
-import { TransactionService } from 'src/modules/transaction/transaction.service';
 import { UserService } from 'src/modules/user/user.service';
 import { MezonService } from '../mezon/mezon.service';
 import {
@@ -33,8 +44,10 @@ import {
   MessageButtonClickedEvent,
 } from '../mezon/types/mezon.type';
 import { LoanService } from 'src/modules/loan/loan.service';
+import { PaymentService } from 'src/modules/payment/payment.service';
 import { AdminService } from 'src/modules/admin/admin.service';
-import { ADMIN_IDS } from 'src/constant';
+import { PaymentStatus } from 'src/types';
+import { TransactionService } from 'src/modules/transaction/transaction.service';
 
 @Injectable()
 export class BotEvent {
@@ -80,10 +93,53 @@ export class BotEvent {
     }
   }
 
-  @OnEvent(Events.MessageButtonClicked)
-  async handleMessageButtonClickedEvent(data: MessageButtonClickedEvent) {
-    await this.loanService.handleCLickButton(data);
-  }
+  // @OnEvent(Events.MessageButtonClicked)
+  // async handleMessageButtonClickedEvent(data: MessageButtonClickedEvent) {
+  //   await this.loanService.handleCLickButton(data);
+  // }
+
+  //   }
+  //   // Temporarily comment out - methods don't exist in UserService
+  //   /*
+  //   else if (message === `${STARTED_MESSAGE}${CHECK_BALANCE_MESSAGE}`) {
+  //     await this.userService.checkBalance(data);
+  //   } else if (message?.startsWith(`${STARTED_MESSAGE}${WITH_DRAW}`)) {
+  //     const numberInString = message.match(/\d+/);
+  //       if (numberInString) {
+  //         await this.userService.withDraw(data, String(numberInString[0]));
+  //       }
+  //   }
+  //   */
+  //   else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${LOANS}`)) {
+  //     await this.handleCreateLoans(data);
+  //   } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_CHECK}`) {
+  //     await this.loanService.getLoanStatus(data);
+  //   } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_LIST}`) {
+  //     await this.handleActiveLoansCommand(data);
+  //   }
+  //   // Payment commands
+  //   else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_HISTORY}`) {
+  //     await this.paymentService.getPaymentHistory(data);
+  //   } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_UPCOMING}`) {
+  //     await this.paymentService.checkUpcomingPayments(data);
+  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_PAY}`)) {
+  //     await this.handlePaymentCommand(data);
+  //   } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_OVERDUE}`) {
+  //     await this.handleOverduePaymentsCheck(data);
+  //   } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_LIST}`) {
+  //     await this.paymentService.getAllPayments(data);
+  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_EARLY}`)) {
+  //     await this.handleEarlyPaymentCommand(data);
+  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CONFIRM}`)) {
+  //     await this.handleConfirmEarlyPayment(data);
+  //   }
+  //   else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${HELP}`)) {
+  //     await this.handleHelpCommand(data);
+  //   }
+  //   else if (message?.startsWith(ADMIN_PREFIX)) {
+  //     await this.handleAdminCommands(data);
+  //   }
+  // }
 
   async handleCreateLoans(data: ChannelMessage) {
     if (!data.content.t) return;
@@ -173,9 +229,89 @@ export class BotEvent {
         case ADMIN_FIND:
           await this.handleFindCommand(data, parts);
           break;
+        case ADMIN_GENERATE_PAYMENTS:
+          await this.handleGeneratePaymentsCommand(data);
+          break;
+        case ADMIN_WITHDRAW:
+          await this.handleAdminWithdrawCommand(data, parts);
+          break;
         default:
           await this.showAdminHelp(data);
       }
+    } catch (error) {
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
+    }
+  }
+
+  private async handleGeneratePaymentsCommand(data: ChannelMessage) {
+    try {
+      const result = await this.adminService.generateMissingPayments(
+        data.sender_id,
+      );
+      const message =
+        `🔧 **Tạo Payments cho Loans đã Approved**\n\n` +
+        `✅ Đã tạo: ${result.created} payment schedules\n` +
+        `⚠️ Bỏ qua: ${result.skipped} loans\n\n` +
+        `💡 Các loans đã approved sẽ có payments được tạo tự động.`;
+
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        message,
+        data.message_id,
+      );
+    } catch (error) {
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi: ${error.message}`,
+        data.message_id,
+      );
+    }
+  }
+
+  private async handleAdminWithdrawCommand(
+    data: ChannelMessage,
+    parts: string[],
+  ) {
+    if (parts.length < 3) {
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Sử dụng: $admin withdraw <số_tiền>',
+        data.message_id,
+      );
+      return;
+    }
+
+    const amount = parseInt(parts[2]);
+
+    if (isNaN(amount) || amount <= 0) {
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        '❌ Số tiền rút không hợp lệ.',
+        data.message_id,
+      );
+      return;
+    }
+
+    try {
+      const result = await this.adminService.withdrawFromAdmin(
+        data.sender_id,
+        amount,
+      );
+      const message =
+        `💰 **Admin Withdraw**\n\n` +
+        `✅ Đã rút: ${amount.toLocaleString()} VND\n` +
+        `💳 Số dư còn lại: ${result.remainingBalance.toLocaleString()} VND\n` +
+        `📄 Transaction ID: ${result.transactionId}`;
+
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        message,
+        data.message_id,
+      );
     } catch (error) {
       await this.userService.sendSystemMessage(
         data.channel_id,
@@ -238,7 +374,6 @@ export class BotEvent {
       const role = user.userRoles?.[0]?.role?.name || 'user';
       const roleIcon = role === 'admin' ? '👑' : '👤';
       const balance = parseInt(user.balance).toLocaleString('vi-VN');
-
       message += `${index + 1}. ${roleIcon} ${user.username}\n`;
       message += `   💰 Số dư: ${balance} VND\n`;
       message += `   ⭐ Điểm tín dụng: ${user.creditScore}\n`;
@@ -278,12 +413,10 @@ export class BotEvent {
       }
 
       let message = `🔍 Kết quả tìm kiếm cho: "${searchTerm}"\n\n`;
-
       users.forEach((user, index) => {
         const role = user.userRoles?.[0]?.role?.name || 'user';
         const roleIcon = role === 'admin' ? '👑' : '👤';
         const balance = parseInt(user.balance).toLocaleString('vi-VN');
-
         message += `${index + 1}. ${roleIcon} ${user.username}\n`;
         message += `   💰 Số dư: ${balance} VND\n`;
         message += `   ⭐ Điểm tín dụng: ${user.creditScore}\n`;

@@ -9,3 +9,12 @@ export const formatVND = (amount?: number | null) => {
     currency: 'VND',
   }).format(amount);
 };
+
+export function formatNumber(amount: number): string {
+  return amount.toLocaleString('vi-VN');
+}
+
+export function parseAmount(amount: string | number): number {
+  if (typeof amount === 'number') return amount;
+  return parseFloat(amount) || 0;
+}

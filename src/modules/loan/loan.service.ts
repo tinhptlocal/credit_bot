@@ -6,7 +6,7 @@ import {
   EMessageComponentType,
 } from 'mezon-sdk';
 import { ADMIN_IDS, ID_ADMIN3, MAX_LOAN_AMOUNTS } from 'src/constant';
-import { Loans, Users } from 'src/entities';
+import { Loans, Users, Payments } from 'src/entities';
 import { formatVND } from 'src/shared/helper';
 import { MezonService } from 'src/shared/mezon/mezon.service';
 import {
