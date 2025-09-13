@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { RemiderService } from './remider.service';
+import { ReminderService } from './reminder.service';
 import { MezonModule } from '../mezon/mezon.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -11,7 +11,7 @@ import { Loans, Payments, Users } from 'src/entities';
     ScheduleModule.forRoot(),
     MezonModule,
   ],
-  providers: [RemiderService],
-  exports: [RemiderService],
+  providers: [ReminderService],
+  exports: [ReminderService],
 })
-export class RemiderModule {}
+export class ReminderModule {}

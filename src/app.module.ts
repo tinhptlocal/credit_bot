@@ -9,7 +9,7 @@ import { UserModule } from './modules/user/user.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { BotEventModule } from './shared/event/bot-event.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
-import { RemiderModule } from './shared/schedule/remider.module';
+import { ReminderModule } from './shared/schedule/reminder.module';
 import { PaymentModule } from './modules/payment/payment.module';
 
 @Module({
@@ -20,7 +20,7 @@ import { PaymentModule } from './modules/payment/payment.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    RemiderModule,
+    ReminderModule,
     RedisModule,
     EventEmitterModule.forRoot(),
     BotModule,

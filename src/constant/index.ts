@@ -9,7 +9,6 @@ export const LOANS = 'vay';
 export const LOANS_CHECK = 'ktvay';
 export const CHECK_LOAN_ACTICE = 'loan_check';
 export const PAYMENT_CHECK_SCHEDULE = 'credit_check';
-export const LOANS_LIST = 'dsvay'; // danh sách khoản vay active
 
 // Payment commands
 export const PAYMENT_HISTORY = 'lstt'; // lịch sử thanh toán
@@ -26,8 +25,6 @@ export const HELP = 'help'; // hiển thị hướng dẫn sử dụng
 // Admin Commands
 export const ADMIN_PREFIX = `${STARTED_MESSAGE}admin`;
 export const ADMIN_KICK = 'kick';
-export const ADMIN_BAN = 'ban';
-export const ADMIN_UNBAN = 'unban';
 export const ADMIN_WARN = 'warn';
 export const ADMIN_STATS = 'stats';
 export const ADMIN_LOANS = 'loans';

@@ -9,7 +9,7 @@ import { MezonService } from '../mezon/mezon.service';
 import { EMessagePayloadType, EMessageType } from '../mezon/types/mezon.type';
 
 @Injectable()
-export class RemiderService {
+export class ReminderService {
   constructor(
     @InjectRepository(Payments)
     private readonly paymentRepository: Repository<Payments>,

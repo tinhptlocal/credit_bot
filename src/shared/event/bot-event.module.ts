@@ -5,6 +5,7 @@ import { TransactionModule } from 'src/modules/transaction/transaction.module';
 import { AdminModule } from 'src/modules/admin/admin.module';
 import { LoanModule } from 'src/modules/loan/loan.module';
 import { MezonModule } from 'src/shared/mezon/mezon.module';
+import { PaymentModule } from 'src/modules/payment/payment.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { MezonModule } from 'src/shared/mezon/mezon.module';
     AdminModule,
     LoanModule,
     MezonModule,
+    PaymentModule,
   ],
   providers: [BotEvent],
   exports: [BotEvent],

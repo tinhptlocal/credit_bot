@@ -17,9 +17,9 @@ import {
   Payments,
 } from 'src/entities';
 import { LoanStatus, PaymentStatus } from 'src/types';
-import { MezonService } from 'src/shared/mezon/mezon.service';
 import { ADMIN_IDS } from 'src/constant/index';
 import { UserService } from '../user/user.service';
+import { ENV } from 'src/config';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -38,7 +38,6 @@ export class AdminService implements OnModuleInit {
     private readonly transactionRepository: Repository<Transactions>,
     @InjectRepository(Payments)
     private readonly paymentRepository: Repository<Payments>,
-    private readonly mezonService: MezonService,
     private readonly userService: UserService,
     private readonly loanService: LoanService,
   ) {}
@@ -49,7 +48,15 @@ export class AdminService implements OnModuleInit {
   }
 
   async isAdmin(userId: string): Promise<boolean> {
-    return ADMIN_IDS.includes(userId);
+    const exists = await this.userRepository
+      .createQueryBuilder('user')
+      .innerJoin('user.userRoles', 'userRole')
+      .innerJoin('userRole.role', 'role')
+      .where('user.userId = :userId', { userId })
+      .andWhere('role.name = :roleName', { roleName: 'admin' })
+      .getExists();
+
+    return exists;
   }
 
   async createRole(name: string): Promise<Roles> {
@@ -363,30 +370,6 @@ export class AdminService implements OnModuleInit {
     return await this.loanRepository.save(loan);
   }
 
-  async banUser(
-    userId: string,
-    adminId: string,
-    reason?: string,
-  ): Promise<void> {
-    if (!(await this.isAdmin(adminId))) {
-      throw new ForbiddenException('Only admins can ban users');
-    }
-
-    const user = await this.getUserById(userId);
-    // user.banned = true;
-    // await this.userRepository.save(user);
-  }
-
-  async unbanUser(userId: string, adminId: string): Promise<void> {
-    if (!(await this.isAdmin(adminId))) {
-      throw new ForbiddenException('Only admins can unban users');
-    }
-
-    const user = await this.getUserById(userId);
-    // user.banned = false;
-    // await this.userRepository.save(user);
-  }
-
   async getSystemStatistics(): Promise<any> {
     const totalUsers = await this.userRepository.count();
     const totalLoans = await this.loanRepository.count();
@@ -435,7 +418,7 @@ export class AdminService implements OnModuleInit {
     return (
       user.username?.includes('credit') ||
       user.username?.includes('bot') ||
-      user.userId === process.env.BOT_ID
+      user.userId === ENV.BOT.ID
     );
   }
 
@@ -480,7 +463,7 @@ export class AdminService implements OnModuleInit {
           username: 'system_admin',
           userId: 'system_admin_001',
           balance: '0',
-          creditScore: 1000,
+          creditScore: 100,
         });
 
         const savedAdmin = await this.userRepository.save(defaultAdmin);
@@ -513,7 +496,7 @@ export class AdminService implements OnModuleInit {
       username,
       userId,
       balance: '0',
-      creditScore: 1000,
+      creditScore: 100,
     });
 
     const savedAdmin = await this.userRepository.save(newAdmin);
@@ -709,19 +692,19 @@ export class AdminService implements OnModuleInit {
     const totalUsers = filteredUsers.length;
 
     const excellentUsers = filteredUsers.filter(
-      (user) => user.creditScore >= 800 && user.creditScore <= 1000,
+      (user) => user.creditScore >= 80 && user.creditScore <= 100,
     ).length;
     const goodUsers = filteredUsers.filter(
-      (user) => user.creditScore >= 650 && user.creditScore <= 799,
+      (user) => user.creditScore >= 65 && user.creditScore <= 79,
     ).length;
     const fairUsers = filteredUsers.filter(
-      (user) => user.creditScore >= 500 && user.creditScore <= 649,
+      (user) => user.creditScore >= 50 && user.creditScore <= 64,
     ).length;
     const poorUsers = filteredUsers.filter(
-      (user) => user.creditScore >= 300 && user.creditScore <= 499,
+      (user) => user.creditScore >= 30 && user.creditScore <= 49,
     ).length;
     const veryPoorUsers = filteredUsers.filter(
-      (user) => user.creditScore >= 0 && user.creditScore <= 299,
+      (user) => user.creditScore >= 0 && user.creditScore <= 29,
     ).length;
 
     const avgCreditScore =

@@ -5,7 +5,6 @@ import {
   CHECK_BALANCE_MESSAGE,
   LOANS,
   LOANS_CHECK,
-  LOANS_LIST,
   OPTION_LOAN_TERMS,
   PAYMENT_HISTORY,
   PAYMENT_UPCOMING,
@@ -20,8 +19,6 @@ import {
   WITH_DRAW,
   ADMIN_PREFIX,
   ADMIN_KICK,
-  ADMIN_BAN,
-  ADMIN_UNBAN,
   ADMIN_WARN,
   ADMIN_STATS,
   ADMIN_LOANS,
@@ -57,6 +54,7 @@ export class BotEvent {
     private readonly mezonService: MezonService,
     private readonly loanService: LoanService,
     private readonly adminService: AdminService,
+    private readonly paymentService: PaymentService,
   ) {}
 
   @OnEvent(Events.TokenSend)
@@ -88,15 +86,21 @@ export class BotEvent {
       message?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CHECK_SCHEDULE}`)
     ) {
       const parts = message.split(' ');
-      const username = parts[1]; // Optional username parameter
+      const username = parts[1];
       await this.loanService.getPaymentSchedule(data, username);
+    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_HISTORY}`) {
+      await this.paymentService.getPaymentHistory(data);
+    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_UPCOMING}`) {
+      await this.paymentService.checkUpcomingPayments(data);
+    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_LIST}`) {
+      await this.paymentService.getAllPayments(data);
     }
   }
 
-  // @OnEvent(Events.MessageButtonClicked)
-  // async handleMessageButtonClickedEvent(data: MessageButtonClickedEvent) {
-  //   await this.loanService.handleCLickButton(data);
-  // }
+  @OnEvent(Events.MessageButtonClicked)
+  async handleMessageButtonClickedEvent(data: MessageButtonClickedEvent) {
+    await this.loanService.handleCLickButton(data);
+  }
 
   //   }
   //   // Temporarily comment out - methods don't exist in UserService
@@ -114,26 +118,17 @@ export class BotEvent {
   //     await this.handleCreateLoans(data);
   //   } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_CHECK}`) {
   //     await this.loanService.getLoanStatus(data);
-  //   } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_LIST}`) {
-  //     await this.handleActiveLoansCommand(data);
-  //   }
+
   //   // Payment commands
-  //   else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_HISTORY}`) {
-  //     await this.paymentService.getPaymentHistory(data);
-  //   } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_UPCOMING}`) {
-  //     await this.paymentService.checkUpcomingPayments(data);
-  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_PAY}`)) {
+  //   else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_PAY}`)) {
   //     await this.handlePaymentCommand(data);
   //   } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_OVERDUE}`) {
   //     await this.handleOverduePaymentsCheck(data);
-  //   } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_LIST}`) {
-  //     await this.paymentService.getAllPayments(data);
   //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_EARLY}`)) {
   //     await this.handleEarlyPaymentCommand(data);
   //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CONFIRM}`)) {
   //     await this.handleConfirmEarlyPayment(data);
-  //   }
-  //   else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${HELP}`)) {
+  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${HELP}`)) {
   //     await this.handleHelpCommand(data);
   //   }
   //   else if (message?.startsWith(ADMIN_PREFIX)) {
