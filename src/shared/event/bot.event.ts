@@ -2,37 +2,41 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ChannelMessage, Events, TokenSentEvent } from 'mezon-sdk';
 import {
-  CHECK_BALANCE_MESSAGE,
-  LOANS,
-  LOANS_CHECK,
-  OPTION_LOAN_TERMS,
-  PAYMENT_HISTORY,
-  PAYMENT_UPCOMING,
-  PAYMENT_PAY,
-  PAYMENT_OVERDUE,
-  PAYMENT_LIST,
-  PAYMENT_EARLY,
-  PAYMENT_CONFIRM,
-  HELP,
-  STARTED_MESSAGE,
-  STARTED_MESSAGE_WITH_BOT_NAME,
-  WITH_DRAW,
-  ADMIN_PREFIX,
-  ADMIN_KICK,
-  ADMIN_WARN,
-  ADMIN_STATS,
-  ADMIN_LOANS,
   ADMIN_APPROVE,
-  ADMIN_REJECT,
-  ADMIN_USERS,
   ADMIN_CREDIT,
   ADMIN_FIND,
   ADMIN_GENERATE_PAYMENTS,
-  ADMIN_WITHDRAW,
   ADMIN_IDS,
-  PAYMENT_CHECK_SCHEDULE,
+  ADMIN_KICK,
+  ADMIN_LOANS,
+  ADMIN_PREFIX,
+  ADMIN_REJECT,
+  ADMIN_STATS,
+  ADMIN_USERS,
+  ADMIN_WARN,
+  ADMIN_WITHDRAW,
+  CHECK_BALANCE_MESSAGE,
   CHECK_LOAN_ACTICE,
+  HELP,
+  LOANS,
+  LOANS_CHECK,
+  OPTION_LOAN_TERMS,
+  PAYMENT_CHECK_SCHEDULE,
+  PAYMENT_CONFIRM,
+  PAYMENT_EARLY,
+  PAYMENT_HISTORY,
+  PAYMENT_LIST,
+  PAYMENT_OVERDUE,
+  PAYMENT_PAY,
+  PAYMENT_UPCOMING,
+  STARTED_MESSAGE,
+  STARTED_MESSAGE_WITH_BOT_NAME,
+  WITH_DRAW,
 } from 'src/constant';
+import { AdminService } from 'src/modules/admin/admin.service';
+import { LoanService } from 'src/modules/loan/loan.service';
+import { PaymentService } from 'src/modules/payment/payment.service';
+import { TransactionService } from 'src/modules/transaction/transaction.service';
 import { UserService } from 'src/modules/user/user.service';
 import { MezonService } from '../mezon/mezon.service';
 import {
@@ -40,11 +44,6 @@ import {
   EMessageType,
   MessageButtonClickedEvent,
 } from '../mezon/types/mezon.type';
-import { LoanService } from 'src/modules/loan/loan.service';
-import { PaymentService } from 'src/modules/payment/payment.service';
-import { AdminService } from 'src/modules/admin/admin.service';
-import { PaymentStatus } from 'src/types';
-import { TransactionService } from 'src/modules/transaction/transaction.service';
 
 @Injectable()
 export class BotEvent {
@@ -94,6 +93,20 @@ export class BotEvent {
       await this.paymentService.checkUpcomingPayments(data);
     } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_LIST}`) {
       await this.paymentService.getAllPayments(data);
+    } else if (
+      data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_EARLY}`)
+    ) {
+      await this.handleEarlyPaymentCommand(data);
+    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_OVERDUE}`) {
+      await this.handleOverduePaymentsCheck(data);
+    } else if (
+      data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CONFIRM}`)
+    ) {
+      await this.handleConfirmEarlyPayment(data);
+    } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_PAY}`)) {
+      await this.handlePaymentCommand(data);
+    } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${HELP}`)) {
+      await this.handleHelpCommand(data);
     }
   }
 
@@ -102,39 +115,194 @@ export class BotEvent {
     await this.loanService.handleCLickButton(data);
   }
 
-  //   }
-  //   // Temporarily comment out - methods don't exist in UserService
-  //   /*
-  //   else if (message === `${STARTED_MESSAGE}${CHECK_BALANCE_MESSAGE}`) {
-  //     await this.userService.checkBalance(data);
-  //   } else if (message?.startsWith(`${STARTED_MESSAGE}${WITH_DRAW}`)) {
-  //     const numberInString = message.match(/\d+/);
-  //       if (numberInString) {
-  //         await this.userService.withDraw(data, String(numberInString[0]));
-  //       }
-  //   }
-  //   */
-  //   else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${LOANS}`)) {
-  //     await this.handleCreateLoans(data);
-  //   } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_CHECK}`) {
-  //     await this.loanService.getLoanStatus(data);
+  async handleHelpCommand(data: ChannelMessage) {
+    if (!data.content.t) return;
 
-  //   // Payment commands
-  //   else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_PAY}`)) {
-  //     await this.handlePaymentCommand(data);
-  //   } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_OVERDUE}`) {
-  //     await this.handleOverduePaymentsCheck(data);
-  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_EARLY}`)) {
-  //     await this.handleEarlyPaymentCommand(data);
-  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CONFIRM}`)) {
-  //     await this.handleConfirmEarlyPayment(data);
-  //   } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${HELP}`)) {
-  //     await this.handleHelpCommand(data);
-  //   }
-  //   else if (message?.startsWith(ADMIN_PREFIX)) {
-  //     await this.handleAdminCommands(data);
-  //   }
-  // }
+    await this.showUserHelp(data);
+  }
+
+  private async showUserHelp(data: ChannelMessage) {
+    const message =
+      `🤖 **HƯỚNG DẪN SỬ DỤNG CREDIT BOT**\n\n` +
+      `📋 **LỆNH CƠ BẢN:**\n` +
+      `• \`$start\` - Đăng ký tài khoản\n` +
+      `• \`$balance\` - Kiểm tra số dư\n` +
+      `• \`$rut <số_tiền>\` - Rút tiền\n\n` +
+      `💰 **QUẢN LÝ KHOẢN VAY:**\n` +
+      `• \`$vay <số_tiền> <số_tháng>\` - Đăng ký vay tiền\n` +
+      `• \`$ktvay\` - Kiểm tra trạng thái khoản vay\n` +
+      `• \`$dsvay\` - Xem danh sách khoản vay đang hoạt động\n\n` +
+      `💳 **THANH TOÁN:**\n` +
+      `• \`$lstt\` - Xem lịch sử thanh toán\n` +
+      `• \`$ttst\` - Xem thanh toán sắp tới\n` +
+      `• \`$tt <payment_id> <số_tiền>\` - Thực hiện thanh toán\n` +
+      `• \`$ttqh\` - Xem thanh toán quá hạn\n` +
+      `• \`$dstt\` - Xem tất cả thanh toán\n\n` +
+      `⚡ **THANH TOÁN TRƯỚC HẠN:**\n` +
+      `• \`$tth <loan_id>\` - Tính toán thanh toán trước hạn\n` +
+      `• \`$xntt <loan_id>\` - Xác nhận thanh toán trước hạn\n\n` +
+      `📝 **VÍ DỤ:**\n` +
+      `• \`$vay 5000000 6\` - Vay 5 triệu trong 6 tháng\n` +
+      `• \`$tt 12345 500000\` - Thanh toán 500k cho payment ID 12345\n` +
+      `• \`$tth 67890\` - Thanh toán trước hạn loan ID 67890\n\n` +
+      `💡 **LƯU Ý:**\n` +
+      `• Kỳ hạn vay hỗ trợ: 3, 6, 9, 12 tháng\n` +
+      `• Thanh toán trước hạn sẽ tiết kiệm lãi suất\n` +
+      `• Copy chính xác Payment ID từ danh sách để thanh toán\n\n` +
+      `🔧 **ADMIN:** Gõ \`$admin\` để xem các lệnh quản trị`;
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.CHANNEL,
+      reply_to_message_id: data.message_id,
+      payload: {
+        channel_id: data.channel_id,
+        message: {
+          type: EMessagePayloadType.SYSTEM,
+          content: message,
+        },
+      },
+    });
+  }
+
+  async handleConfirmEarlyPayment(data: ChannelMessage) {
+    if (!data.content.t) return;
+    const params = data.content.t.split(' ');
+
+    if (params.length !== 2) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
+        payload: {
+          channel_id: data.channel_id,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content: '❌ Cú pháp không đúng. Vui lòng sử dụng: $xntt <loan_id>',
+          },
+        },
+      });
+      return;
+    }
+
+    const loanId = params[1];
+    await this.paymentService.confirmEarlyPayment(data, loanId);
+  }
+
+  async handlePaymentCommand(data: ChannelMessage) {
+    if (!data.content.t) return;
+    const params = data.content.t.split(' ');
+
+    if (params.length !== 3) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
+        payload: {
+          channel_id: data.channel_id,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content:
+              '❌ Cú pháp không đúng. Vui lòng sử dụng: $tt <payment_id> <số_tiền>',
+          },
+        },
+      });
+      return;
+    }
+
+    const paymentId = params[1];
+    const amount = parseInt(params[2]);
+
+    if (isNaN(amount) || amount <= 0) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
+        payload: {
+          channel_id: data.channel_id,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content: '❌ Số tiền thanh toán không hợp lệ.',
+          },
+        },
+      });
+      return;
+    }
+
+    await this.paymentService.processPayment(data, paymentId, amount);
+  }
+
+  async handleEarlyPaymentCommand(data: ChannelMessage) {
+    if (!data.content.t) return;
+    const params = data.content.t.split(' ');
+
+    if (params.length !== 2) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
+        payload: {
+          channel_id: data.channel_id,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content: '❌ Cú pháp không đúng. Vui lòng sử dụng: $tth <loan_id>',
+          },
+        },
+      });
+      return;
+    }
+
+    const loanId = params[1];
+    await this.paymentService.payEarlyFullLoan(data, loanId);
+  }
+
+  async handleOverduePaymentsCheck(data: ChannelMessage) {
+    const userId = data.sender_id;
+    const overduePayments =
+      await this.paymentService.checkOverduePayments(userId);
+
+    if (!overduePayments.length) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.CHANNEL,
+        reply_to_message_id: data.message_id,
+        payload: {
+          channel_id: data.channel_id,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content: '✅ Bạn không có khoản thanh toán nào quá hạn.',
+          },
+        },
+      });
+      return;
+    }
+
+    let message = '🔴 Các khoản thanh toán quá hạn:\n\n';
+
+    overduePayments.forEach((payment, index) => {
+      const lateFee = parseFloat(payment.fee || '0');
+
+      message += `${index + 1}. **Khoản thanh toán #${payment.id}**\n`;
+      message += `🆔 **Payment ID: ${payment.id}**\n`;
+      message += `💰 Số tiền: ${payment.amount} VND\n`;
+
+      if (lateFee > 0) {
+        message += `🚫 Phí phạt: ${lateFee} VND\n`;
+      }
+
+      message += `📅 Hạn thanh toán: ${payment.dueDate}\n`;
+      message += `▶️ **Lệnh thanh toán: $tt ${payment.id} <số_tiền>**\n\n`;
+    });
+
+    message +=
+      '💡 **Gợi ý:** Copy chính xác Payment ID từ danh sách trên để thanh toán ngay';
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.CHANNEL,
+      reply_to_message_id: data.message_id,
+      payload: {
+        channel_id: data.channel_id,
+        message: {
+          type: EMessagePayloadType.SYSTEM,
+          content: message,
+        },
+      },
+    });
+  }
 
   async handleCreateLoans(data: ChannelMessage) {
     if (!data.content.t) return;
@@ -192,7 +360,7 @@ export class BotEvent {
       return;
     }
 
-    const parts = message!.split(' ');
+    const parts = message.split(' ');
     const command = parts[1];
 
     try {
