@@ -7,6 +7,7 @@ export const CHECK_BALANCE_MESSAGE = 'kttk';
 export const WITH_DRAW = 'rut';
 export const LOANS = 'vay';
 export const LOANS_CHECK = 'ktvay';
+export const LOANS_LIST = 'dsvay'; // danh sách khoản vay đang hoạt động
 export const CHECK_LOAN_ACTICE = 'loan_check';
 export const PAYMENT_CHECK_SCHEDULE = 'credit_check';
 
@@ -33,11 +34,12 @@ export const ADMIN_REJECT = 'reject';
 export const ADMIN_USERS = 'users';
 export const ADMIN_CREDIT = 'credit';
 export const ADMIN_FIND = 'find';
-export const ID_ADMIN1 = '1929454908461813760';
-export const ID_ADMIN2 = '1840656224442388480';
-export const ID_ADMIN3 = '1930090353453436928';
+export const ID_ADMIN1 = '1840669672182124544';
+export const ID_ADMIN2 = '1840669672182124544';
+export const ID_ADMIN3 = '1840669672182124544';
 export const ADMIN_GENERATE_PAYMENTS = 'genpay'; // tạo payments cho loans đã approved
 export const ADMIN_WITHDRAW = 'withdraw'; // admin rút tiền từ balance
+export const ADMIN_BALANCE = 'balance'; // xem balance của bot/treasury
 
 const fromEnv = (process.env.ADMIN_IDS || '')
   .split(',')

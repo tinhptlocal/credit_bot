@@ -59,6 +59,13 @@ export class AdminService implements OnModuleInit {
     return exists;
   }
 
+  /**
+   * Kiểm tra admin bằng ADMIN_IDS constant (nhanh hơn)
+   */
+  private isAdminByIds(userId: string): boolean {
+    return ADMIN_IDS.includes(userId);
+  }
+
   async createRole(name: string): Promise<Roles> {
     const role = this.roleRepository.create({ name });
     return await this.roleRepository.save(role);
@@ -157,8 +164,13 @@ export class AdminService implements OnModuleInit {
   }
 
   async approveLoan(loanId: string, adminId: string): Promise<Loans> {
-    if (!(await this.isAdmin(adminId))) {
-      throw new ForbiddenException('Only admins can approve loans');
+    // Tạm thời debug để xem adminId
+    this.logger.debug(`Trying to approve loan ${loanId} by admin ${adminId}`);
+    this.logger.debug(`ADMIN_IDS: ${JSON.stringify(ADMIN_IDS)}`);
+    
+    // Kiểm tra admin qua ADMIN_IDS constant thay vì database
+    if (!this.isAdminByIds(adminId)) {
+      throw new ForbiddenException(`Only admins can approve loans. Your ID: ${adminId}, Admin IDs: ${ADMIN_IDS.join(', ')}`);
     }
 
     const loan = await this.loanRepository.findOne({
@@ -352,7 +364,7 @@ export class AdminService implements OnModuleInit {
     adminId: string,
     reason?: string,
   ): Promise<Loans> {
-    if (!(await this.isAdmin(adminId))) {
+    if (!this.isAdminByIds(adminId)) {
       throw new ForbiddenException('Only admins can reject loans');
     }
 
@@ -860,6 +872,53 @@ export class AdminService implements OnModuleInit {
       topUsers,
       riskStatistics: riskStats,
       generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Lấy thông tin balance của bot/treasury
+   */
+  async getBotBalance(): Promise<{
+    botUserId: string;
+    balance: number;
+    totalPaymentsReceived: number;
+    totalLoansGiven: number;
+    netProfit: number;
+  }> {
+    const botUserId = ADMIN_IDS[0];
+
+    // Lấy thông tin bot user
+    const botUser = await this.userRepository.findOne({ where: { userId: botUserId } });
+    const currentBalance = botUser ? parseFloat(botUser.balance) : 0;
+
+    // Tính tổng tiền nhận được từ payments
+    const paymentTransactions = await this.transactionRepository
+      .createQueryBuilder('t')
+      .where('t.type = :type', { type: 'payment' })
+      .select('SUM(CAST(t.amount AS DECIMAL))', 'total')
+      .getRawOne();
+
+    const totalPaymentsReceived = parseFloat(paymentTransactions?.total || '0');
+
+    // Tính tổng tiền đã cho vay (approved loans)
+    const approvedLoans = await this.loanRepository
+      .createQueryBuilder('l')
+      .where('l.status = :status', { status: LoanStatus.APPROVED })
+      .orWhere('l.status = :repaidStatus', { repaidStatus: LoanStatus.REPAID })
+      .select('SUM(CAST(l.amount AS DECIMAL))', 'total')
+      .getRawOne();
+
+    const totalLoansGiven = parseFloat(approvedLoans?.total || '0');
+
+    // Net profit = Tiền nhận - Tiền cho vay
+    const netProfit = totalPaymentsReceived - totalLoansGiven;
+
+    return {
+      botUserId,
+      balance: currentBalance,
+      totalPaymentsReceived,
+      totalLoansGiven,
+      netProfit,
     };
   }
 }

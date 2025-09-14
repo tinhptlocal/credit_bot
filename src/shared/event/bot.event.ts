@@ -15,11 +15,13 @@ import {
   ADMIN_USERS,
   ADMIN_WARN,
   ADMIN_WITHDRAW,
+  ADMIN_BALANCE,
   CHECK_BALANCE_MESSAGE,
   CHECK_LOAN_ACTICE,
   HELP,
   LOANS,
   LOANS_CHECK,
+  LOANS_LIST,
   OPTION_LOAN_TERMS,
   PAYMENT_CHECK_SCHEDULE,
   PAYMENT_CONFIRM,
@@ -33,6 +35,7 @@ import {
   STARTED_MESSAGE_WITH_BOT_NAME,
   WITH_DRAW,
 } from 'src/constant';
+import { formatVND } from 'src/shared/helper';
 import { AdminService } from 'src/modules/admin/admin.service';
 import { LoanService } from 'src/modules/loan/loan.service';
 import { PaymentService } from 'src/modules/payment/payment.service';
@@ -77,6 +80,8 @@ export class BotEvent {
       await this.handleCreateLoans(data);
     } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_CHECK}`) {
       await this.loanService.getLoanStatus(data);
+    } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_LIST}`) {
+      await this.loanService.getLoanActive(data);
     } else if (message?.startsWith(ADMIN_PREFIX)) {
       await this.handleAdminCommands(data);
     } else if (message === `${STARTED_MESSAGE}${CHECK_LOAN_ACTICE}`) {
@@ -126,7 +131,7 @@ export class BotEvent {
       `🤖 **HƯỚNG DẪN SỬ DỤNG CREDIT BOT**\n\n` +
       `📋 **LỆNH CƠ BẢN:**\n` +
       `• \`$start\` - Đăng ký tài khoản\n` +
-      `• \`$balance\` - Kiểm tra số dư\n` +
+      `• \`$kttk\` - Kiểm tra số dư\n` +
       `• \`$rut <số_tiền>\` - Rút tiền\n\n` +
       `💰 **QUẢN LÝ KHOẢN VAY:**\n` +
       `• \`$vay <số_tiền> <số_tháng>\` - Đăng ký vay tiền\n` +
@@ -397,6 +402,9 @@ export class BotEvent {
           break;
         case ADMIN_WITHDRAW:
           await this.handleAdminWithdrawCommand(data, parts);
+          break;
+        case ADMIN_BALANCE:
+          await this.handleBotBalanceCommand(data);
           break;
         default:
           await this.showAdminHelp(data);
@@ -826,11 +834,39 @@ export class BotEvent {
     }
   }
 
+  private async handleBotBalanceCommand(data: ChannelMessage) {
+    try {
+      const balanceInfo = await this.adminService.getBotBalance();
+
+      const message = `💰 **THÔNG TIN BALANCE HỆ THỐNG**\n\n` +
+        `🤖 **Bot Account:** ${balanceInfo.botUserId}\n` +
+        `💳 **Balance hiện tại:** ${formatVND(balanceInfo.balance)}\n\n` +
+        `📊 **Thống kê tài chính:**\n` +
+        `📈 Tổng tiền nhận (payments): ${formatVND(balanceInfo.totalPaymentsReceived)}\n` +
+        `📉 Tổng tiền cho vay: ${formatVND(balanceInfo.totalLoansGiven)}\n` +
+        `💰 Lợi nhuận ròng: ${formatVND(balanceInfo.netProfit)}\n\n` +
+        `💡 **Ghi chú:** Balance này bao gồm tất cả tiền từ thanh toán của users`;
+
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        message,
+        data.message_id
+      );
+    } catch (error) {
+      await this.userService.sendSystemMessage(
+        data.channel_id,
+        `❌ Lỗi khi lấy thông tin balance: ${error.message}`,
+        data.message_id
+      );
+    }
+  }
+
   private async showAdminHelp(data: ChannelMessage) {
     const message =
       `🛠️ Lệnh Admin:\n` +
       `📊 $admin stats - Thống kê hệ thống\n` +
-      `📋 $admin loans - Xem khoản vay chờ phê duyệt\n` +
+      `� $admin balance - Xem balance bot/treasury\n` +
+      `�📋 $admin loans - Xem khoản vay chờ phê duyệt\n` +
       `👥 $admin users - Xem danh sách users\n` +
       `🔍 $admin find <tên_hoặc_id> - Tìm kiếm user\n` +
       `🚫 $admin kick <user_name> [lý do] - Kick user\n` +
