@@ -2,11 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ChannelMessage, Events, TokenSentEvent } from 'mezon-sdk';
 import {
+  ADD_ADMIN,
   ADMIN_APPROVE,
   ADMIN_CREDIT,
   ADMIN_FIND,
   ADMIN_GENERATE_PAYMENTS,
-  ADMIN_IDS,
   ADMIN_KICK,
   ADMIN_LOANS,
   ADMIN_PREFIX,
@@ -356,7 +356,7 @@ export class BotEvent {
     if (!message) {
       return;
     }
-    if (!ADMIN_IDS.includes(adminId)) {
+    if (await this.adminService.isAdmin(adminId)) {
       await this.userService.sendSystemMessage(
         data.channel_id,
         '❌ Bạn không có quyền sử dụng lệnh admin!',
@@ -405,6 +405,8 @@ export class BotEvent {
           break;
         case ADMIN_BALANCE:
           await this.handleBotBalanceCommand(data);
+        case ADD_ADMIN:
+          await this.adminService.createAdmin(data);
           break;
         default:
           await this.showAdminHelp(data);
@@ -838,7 +840,8 @@ export class BotEvent {
     try {
       const balanceInfo = await this.adminService.getBotBalance();
 
-      const message = `💰 **THÔNG TIN BALANCE HỆ THỐNG**\n\n` +
+      const message =
+        `💰 **THÔNG TIN BALANCE HỆ THỐNG**\n\n` +
         `🤖 **Bot Account:** ${balanceInfo.botUserId}\n` +
         `💳 **Balance hiện tại:** ${formatVND(balanceInfo.balance)}\n\n` +
         `📊 **Thống kê tài chính:**\n` +
@@ -850,13 +853,13 @@ export class BotEvent {
       await this.userService.sendSystemMessage(
         data.channel_id,
         message,
-        data.message_id
+        data.message_id,
       );
     } catch (error) {
       await this.userService.sendSystemMessage(
         data.channel_id,
         `❌ Lỗi khi lấy thông tin balance: ${error.message}`,
-        data.message_id
+        data.message_id,
       );
     }
   }
@@ -873,7 +876,8 @@ export class BotEvent {
       `⚠️ $admin warn <user_name> <lý do> - Cảnh báo user\n` +
       `✅ $admin approve <loan_id> - Phê duyệt khoản vay\n` +
       `❌ $admin reject <loan_id> [lý do] - Từ chối khoản vay\n` +
-      `💳 $admin credit <user_name> <điểm> - Điều chỉnh điểm tín dụng`;
+      `💳 $admin credit <user_name> <điểm> - Điều chỉnh điểm tín dụng` +
+      `👥 $admin add <user_name> <điểm> - Điều chỉnh điểm tín dụng`;
 
     await this.userService.sendSystemMessage(
       data.channel_id,

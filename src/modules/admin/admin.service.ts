@@ -17,9 +17,14 @@ import {
   Payments,
 } from 'src/entities';
 import { LoanStatus, PaymentStatus } from 'src/types';
-import { ADMIN_IDS } from 'src/constant/index';
 import { UserService } from '../user/user.service';
 import { ENV } from 'src/config';
+import { ApiMessageMention, ChannelMessage, EMarkdownType } from 'mezon-sdk';
+import { MezonService } from 'src/shared/mezon/mezon.service';
+import {
+  EMessagePayloadType,
+  EMessageType,
+} from 'src/shared/mezon/types/mezon.type';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -40,6 +45,7 @@ export class AdminService implements OnModuleInit {
     private readonly paymentRepository: Repository<Payments>,
     private readonly userService: UserService,
     private readonly loanService: LoanService,
+    private readonly mezonService: MezonService,
   ) {}
 
   async onModuleInit() {
@@ -495,51 +501,142 @@ export class AdminService implements OnModuleInit {
     }
   }
 
-  async createAdmin(username: string, userId: string): Promise<Users> {
+  async createAdmin(data: ChannelMessage): Promise<void> {
+    const adminId = data?.sender_id;
+    const adminName = data.display_name;
+    const channelId = data?.channel_id;
+    if (!(await this.isAdmin(adminId))) {
+      await this.userService.sendSystemMessage(
+        channelId,
+        'Only admins can add new admins',
+        data.message_id,
+      );
+    }
+
+    const targetUserId = data.mentions?.[0].user_id;
+
+    const targetUser = await this.userRepository.findOne({
+      where: { userId: targetUserId },
+      relations: ['userRoles', 'userRoles.role'],
+    });
+
+    let mentionUserName;
+
+    if (!targetUser) {
+      mentionUserName = await this.getUserNameInMention(data);
+
+      await this.userRepository.save(
+        this.userRepository.create({
+          username: mentionUserName,
+          userId: targetUserId,
+          balance: '0',
+          creditScore: 100,
+        }),
+      );
+    }
+
     const adminRole = await this.roleRepository.findOne({
       where: { name: 'admin' },
     });
 
-    if (!adminRole) {
-      throw new Error('Admin role not found');
-    }
-
-    const newAdmin = this.userRepository.create({
-      username,
-      userId,
-      balance: '0',
-      creditScore: 100,
+    const userRole = this.userRoleRepository.create({
+      userId: targetUserId,
+      roleId: adminRole?.id,
     });
 
-    const savedAdmin = await this.userRepository.save(newAdmin);
+    await this.userRoleRepository.save(userRole);
 
-    const adminUserRole = this.userRoleRepository.create({
-      userId: savedAdmin.userId,
-      roleId: adminRole.id,
+    await this.sendMessageAddAdmin({
+      channelId,
+      replyToMessageId: data.message_id ?? '',
+      mentionUserName,
+      adminName: adminName ?? '',
+      adminId,
+      mentionUserId: targetUserId ?? '',
     });
-
-    await this.userRoleRepository.save(adminUserRole);
-    this.logger.log(`New admin created: ${username} (${userId})`);
-    return savedAdmin;
   }
 
-  async removeAdmin(userId: string): Promise<void> {
-    const adminRole = await this.roleRepository.findOne({
-      where: { name: 'admin' },
-    });
-
-    if (!adminRole) {
-      throw new Error('Admin role not found');
+  async getUserNameInMention(data: ChannelMessage) {
+    let mentionUserName: string | undefined;
+    if (data.content.t?.includes('@')) {
+      const mention = data.mentions?.[0];
+      if (mention) {
+        const m = data.content.t.trim().split(/\s+/);
+        const mentionIdx = m.findIndex((x) => x.startsWith('@'));
+        mentionUserName = m
+          .slice(mentionIdx, m.length)
+          .filter((x) => !/^\d+$/.test(x))
+          .map((x) => (x.startsWith('@') ? x.slice(1) : x))
+          .join(' ')
+          .trim();
+      }
+    } else {
+      mentionUserName = data.references?.[0]?.message_sender_username;
     }
 
-    const adminUserRole = await this.userRoleRepository.findOne({
-      where: { userId, roleId: adminRole.id },
-    });
+    return mentionUserName;
+  }
 
-    if (adminUserRole) {
-      await this.userRoleRepository.remove(adminUserRole);
-      this.logger.log(`Admin privileges removed for user: ${userId}`);
+  async sendMessageAddAdmin({
+    channelId,
+    replyToMessageId,
+    mentionUserName,
+    adminName,
+    adminId,
+    mentionUserId,
+  }: {
+    channelId: string;
+    replyToMessageId: string;
+    mentionUserName: string;
+    adminName: string;
+    adminId: string;
+    mentionUserId: string;
+  }) {
+    const normalContent = `👑 ${mentionUserName} đã được thêm làm admin bởi ${adminName}`;
+    const apiMentions: Array<ApiMessageMention> = [];
+
+    const hostMentionString = adminName;
+    const guestMentionString = mentionUserName;
+
+    const hostMatch = new RegExp(`\\b${hostMentionString}\\b`).exec(
+      normalContent,
+    );
+    const guestMatch = new RegExp(`\\b${guestMentionString}\\b`).exec(
+      normalContent,
+    );
+
+    if (hostMatch) {
+      apiMentions.push({
+        user_id: adminId,
+        channel_id: channelId,
+        s: hostMatch.index,
+        e: hostMatch.index + hostMentionString.length,
+      });
     }
+
+    if (guestMatch) {
+      apiMentions.push({
+        user_id: mentionUserId,
+        channel_id: channelId,
+        s: guestMatch.index,
+        e: guestMatch.index + guestMentionString.length,
+      });
+    }
+
+    await this.mezonService.sendMessage({
+      type: EMessageType.CHANNEL,
+      reply_to_message_id: replyToMessageId,
+      payload: {
+        channel_id: channelId,
+        message: {
+          type: EMessagePayloadType.OPTIONAL,
+          content: {
+            t: normalContent,
+          },
+        },
+        mentions: apiMentions,
+      },
+    });
   }
 
   async kickUser(

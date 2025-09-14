@@ -36,19 +36,11 @@ export const ADMIN_CREDIT = 'credit';
 export const ADMIN_FIND = 'find';
 export const ID_ADMIN1 = '1840669672182124544';
 export const ID_ADMIN2 = '1840669672182124544';
-export const ID_ADMIN3 = '1840669672182124544';
-export const ADMIN_GENERATE_PAYMENTS = 'genpay'; // tạo payments cho loans đã approved
-export const ADMIN_WITHDRAW = 'withdraw'; // admin rút tiền từ balance
-export const ADMIN_BALANCE = 'balance'; // xem balance của bot/treasury
-
-const fromEnv = (process.env.ADMIN_IDS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter((s) => !!s);
-
-export const ADMIN_IDS = fromEnv.length
-  ? fromEnv
-  : [ID_ADMIN1, ID_ADMIN2, ID_ADMIN3];
+export const ADMIN_BALANCE = 'balance';
+export const ADMIN_GENERATE_PAYMENTS = 'genpay';
+export const ADMIN_WITHDRAW = 'withdraw';
+export const ADD_ADMIN = 'add';
+export const ID_ADMIN3 = '1930090353453436928';
 
 export const EMPTY_BALANCE_MESSAGES = [
   `Pay more for love!`,
