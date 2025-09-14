@@ -404,7 +404,13 @@ ${scheduleMessage}
           }
         }
 
-        message += `   ▶️ **Thanh toán trước hạn:** \`$tth ${loan.id}\`\n\n`;
+        // Tính toán số tiền thanh toán trước hạn
+        const earlyPayment = this.calculateEarlyPaymentAmount(loan);
+
+        message += `   💰 **Thanh toán trước hạn:**\n`;
+        message += `      • Tổng cần trả: ${formatVND(earlyPayment.totalAmount)}\n`;
+        message += `      • Lãi tiết kiệm: ${formatVND(earlyPayment.interestSaved)}\n`;
+        message += `      • Lệnh: \`$tth ${loan.id}\`\n\n`;
       });
 
       message += '💡 **Gợi ý:**\n';
@@ -727,6 +733,53 @@ ${reason ? `\n📝 Lý do: ${reason}` : ''}
         },
       },
     });
+  }
+
+  /**
+   * Tính toán số tiền cần thanh toán trước hạn cho một loan
+   */
+  private calculateEarlyPaymentAmount(loan: Loans): {
+    totalAmount: number;
+    principalRemaining: number;
+    interestSaved: number;
+  } {
+    // Lấy các payments đã thanh toán
+    const paidPayments = loan.payments?.filter(p =>
+      p.status === PaymentStatus.PAID || p.status === PaymentStatus.MINIMUM_PAID
+    ) || [];
+
+    // Lấy các payments chưa thanh toán
+    const unpaidPayments = loan.payments?.filter(p =>
+      p.status === PaymentStatus.PENDING || p.status === PaymentStatus.OVERDUE
+    ) || [];
+
+    // Tính số tiền gốc đã trả (ước tính 70% là gốc, 30% là lãi)
+    const principalPaid = paidPayments.reduce((sum, payment) => {
+      const paymentAmount = parseFloat(payment.amount);
+      const estimatedPrincipal = paymentAmount * 0.7;
+      return sum + estimatedPrincipal;
+    }, 0);
+
+    // Tính số tiền gốc còn lại
+    const loanPrincipal = parseFloat(loan.amount);
+    const principalRemaining = Math.max(0, loanPrincipal - principalPaid);
+
+    // Tính tổng tiền phải trả theo lịch (chưa thanh toán)
+    const remainingScheduledAmount = unpaidPayments.reduce((sum, payment) => {
+      return sum + parseFloat(payment.amount) + parseFloat(payment.fee || '0');
+    }, 0);
+
+    // Lãi tiết kiệm được (20% số tiền còn lại)
+    const interestSaved = remainingScheduledAmount * 0.2;
+
+    // Tổng tiền cần thanh toán = Số tiền theo lịch - Lãi tiết kiệm
+    const totalAmount = Math.max(0, remainingScheduledAmount - interestSaved);
+
+    return {
+      totalAmount,
+      principalRemaining,
+      interestSaved,
+    };
   }
 
   async handleCLickButton(data: MessageButtonClickedEvent) {

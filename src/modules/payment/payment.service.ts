@@ -1,12 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, MoreThan } from 'typeorm';
+import { Repository, LessThan, MoreThan, DataSource } from 'typeorm';
 import { Payments, Loans, Users, Transactions } from 'src/entities';
 import { PaymentStatus, LoanStatus, TransactionType } from 'src/types';
 import { ChannelMessage } from 'mezon-sdk';
 import { MezonService } from 'src/shared/mezon/mezon.service';
 import { EMessageType, EMessagePayloadType } from 'src/shared/mezon/types/mezon.type';
 import { formatVND } from 'src/shared/helper';
+import { ADMIN_IDS } from 'src/constant';
 
 @Injectable()
 export class PaymentService {
@@ -22,6 +23,7 @@ export class PaymentService {
     @InjectRepository(Transactions)
     private readonly transactionsRepository: Repository<Transactions>,
     private readonly mezonService: MezonService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -98,7 +100,14 @@ export class PaymentService {
       const user = await this.usersRepository.findOne({ where: { userId } });
 
       if (!user || parseFloat(user.balance) < calculation.totalAmount) {
-        await this.sendMessage(data, '❌ Số dư không đủ để thực hiện thanh toán.');
+        await this.sendMessage(data, 
+          `❌ **Số dư không đủ để thanh toán trước hạn**\n\n` +
+          `💰 **Thông tin thanh toán:**\n` +
+          `• Cần thanh toán: ${formatVND(calculation.totalAmount)}\n` +
+          `• Số dư hiện tại: ${formatVND(parseFloat(user?.balance || '0'))}\n` +
+          `• Còn thiếu: ${formatVND(calculation.totalAmount - parseFloat(user?.balance || '0'))}\n\n` +
+          `💡 Vui lòng nạp thêm tiền vào tài khoản để thanh toán trước hạn.`
+        );
         return;
       }
 
@@ -188,43 +197,53 @@ export class PaymentService {
     calculation: any,
     data: ChannelMessage
   ): Promise<void> {
-    // Tạo transaction cho thanh toán trước hạn
-    const transaction = await this.transactionsRepository.save(
-      this.transactionsRepository.create({
+    // Sử dụng database transaction để đảm bảo atomicity
+    await this.dataSource.transaction(async manager => {
+      // Tạo transaction cho thanh toán trước hạn
+      const transaction = await manager.save(Transactions, {
         transactionId: `EARLY_PAY_${Date.now()}_${loan.id}`,
         userId: user.userId,
         loanId: loan.id,
         amount: calculation.totalAmount.toString(),
         type: TransactionType.PAYMENT,
         status: 'completed',
-      })
-    );
-
-    // Cập nhật số dư user
-    const newBalance = parseFloat(user.balance) - calculation.totalAmount;
-    await this.usersRepository.update(user.userId, {
-      balance: newBalance.toString(),
-    });
-
-    // Cập nhật tất cả payments còn lại thành PAID
-    const unpaidPayments = loan.payments.filter(p =>
-      p.status === PaymentStatus.PENDING || p.status === PaymentStatus.OVERDUE
-    );
-
-    for (const payment of unpaidPayments) {
-      await this.paymentsRepository.update(payment.id, {
-        status: PaymentStatus.PAID,
-        paidDate: new Date().toISOString().split('T')[0],
       });
-    }
 
-    // Cập nhật loan status
-    await this.loansRepository.update(loan.id, {
-      status: LoanStatus.REPAID,
+      // Cập nhật số dư user (trừ tiền từ user)
+      const oldBalance = parseFloat(user.balance);
+      const newBalance = oldBalance - calculation.totalAmount;
+      
+      this.logger.log(`Early payment: User ${user.userId}, Old balance: ${oldBalance}, Amount: ${calculation.totalAmount}, New balance: ${newBalance}`);
+      
+      await manager.update(Users, user.userId, {
+        balance: newBalance.toString(),
+      });
+
+      // Chuyển tiền vào balance của bot/admin
+      await this.transferToBotWithManager(calculation.totalAmount, manager);
+
+      // Cập nhật tất cả payments còn lại thành PAID
+      const unpaidPayments = loan.payments.filter(p =>
+        p.status === PaymentStatus.PENDING || p.status === PaymentStatus.OVERDUE
+      );
+
+      for (const payment of unpaidPayments) {
+        await manager.update(Payments, payment.id, {
+          status: PaymentStatus.PAID,
+          paidDate: new Date().toISOString().split('T')[0],
+        });
+      }
+
+      // Cập nhật loan status
+      await manager.update(Loans, loan.id, {
+        status: LoanStatus.REPAID,
+      });
+
+      this.logger.log(`Early payment for loan ${loan.id} processed successfully`);
     });
 
-    // Gửi thông báo thành công
-    const successMessage = this.formatEarlyPaymentSuccess(loan, calculation, transaction.transactionId);
+    // Gửi thông báo thành công (ngoài transaction)
+    const successMessage = this.formatEarlyPaymentSuccess(loan, calculation, `EARLY_PAY_${Date.now()}_${loan.id}`);
     await this.sendMessage(data, successMessage);
   }
 
@@ -517,13 +536,31 @@ export class PaymentService {
       const lateFee = parseFloat(payment.fee || '0');
       const totalRequired = paymentAmount + lateFee;
 
-      // Kiểm tra số tiền thanh toán
+      // Kiểm tra số tiền thanh toán với thông tin chi tiết
       if (amount < minimumAmount) {
         await this.sendMessage(data, 
-          `❌ Số tiền thanh toán tối thiểu là ${formatVND(minimumAmount)}.\n` +
-          `💰 Bạn đang thanh toán: ${formatVND(amount)}`
+          `❌ **Số tiền thanh toán không đủ**\n\n` +
+          `💰 **Thông tin thanh toán:**\n` +
+          `• Bạn thanh toán: ${formatVND(amount)}\n` +
+          `• Tối thiểu cần trả: ${formatVND(minimumAmount)}\n` +
+          `• Toàn bộ khoản này: ${formatVND(totalRequired)}\n` +
+          `${lateFee > 0 ? `• Phí phạt: ${formatVND(lateFee)}\n` : ''}` +
+          `\n💡 **Lệnh đúng:**\n` +
+          `• Trả tối thiểu: \`$tt ${payment.id} ${minimumAmount}\`\n` +
+          `• Trả toàn bộ: \`$tt ${payment.id} ${totalRequired}\``
         );
         return;
+      }
+
+      // Cảnh báo nếu thanh toán ít hơn toàn bộ
+      if (amount >= minimumAmount && amount < totalRequired) {
+        await this.sendMessage(data,
+          `⚠️ **Cảnh báo: Thanh toán không đầy đủ**\n\n` +
+          `💰 Bạn đang thanh toán: ${formatVND(amount)}\n` +
+          `💳 Toàn bộ khoản này: ${formatVND(totalRequired)}\n` +
+          `💸 Còn thiếu: ${formatVND(totalRequired - amount)}\n\n` +
+          `🔄 Thanh toán sẽ được xử lý, nhưng bạn vẫn còn nợ phần còn lại.`
+        );
       }
 
       // Thực hiện thanh toán
@@ -544,13 +581,14 @@ export class PaymentService {
     amount: number,
     data: ChannelMessage
   ): Promise<void> {
-    const paymentAmount = parseFloat(payment.amount);
-    const lateFee = parseFloat(payment.fee || '0');
-    const totalRequired = paymentAmount + lateFee;
+    // Sử dụng database transaction để đảm bảo atomicity
+    await this.dataSource.transaction(async manager => {
+      const paymentAmount = parseFloat(payment.amount);
+      const lateFee = parseFloat(payment.fee || '0');
+      const totalRequired = paymentAmount + lateFee;
 
-    // Tạo transaction
-    const transaction = await this.transactionsRepository.save(
-      this.transactionsRepository.create({
+      // Tạo transaction
+      const transaction = await manager.save(Transactions, {
         transactionId: `PAY_${Date.now()}_${payment.id}`,
         userId: user.userId,
         loanId: payment.loanId,
@@ -558,36 +596,48 @@ export class PaymentService {
         amount: amount.toString(),
         type: TransactionType.PAYMENT,
         status: 'completed',
-      })
-    );
+      });
 
-    // Cập nhật số dư user
-    const newBalance = parseFloat(user.balance) - amount;
-    await this.usersRepository.update(user.userId, {
-      balance: newBalance.toString(),
+      // Cập nhật số dư user (trừ tiền từ user)
+      const oldBalance = parseFloat(user.balance);
+      const newBalance = oldBalance - amount;
+      
+      this.logger.log(`Processing payment: User ${user.userId}, Old balance: ${oldBalance}, Amount: ${amount}, New balance: ${newBalance}`);
+      
+      await manager.update(Users, user.userId, {
+        balance: newBalance.toString(),
+      });
+
+      // Chuyển tiền vào balance của bot/admin (ADMIN_IDS[0])
+      await this.transferToBotWithManager(amount, manager);
+
+      // Xác định trạng thái thanh toán
+      let newStatus: PaymentStatus;
+      if (amount >= totalRequired) {
+        newStatus = PaymentStatus.PAID;
+      } else if (amount >= parseFloat(payment.minimumAmount)) {
+        newStatus = PaymentStatus.MINIMUM_PAID;
+      } else {
+        newStatus = PaymentStatus.PENDING;
+      }
+
+      // Cập nhật payment
+      await manager.update(Payments, payment.id, {
+        status: newStatus,
+        paidDate: new Date().toISOString().split('T')[0],
+      });
+
+      // Kiểm tra xem loan đã hoàn thành chưa
+      await this.checkLoanCompletionWithManager(payment.loanId, manager);
+
+      this.logger.log(`Payment ${payment.id} processed successfully. Status: ${newStatus}`);
     });
 
-    // Xác định trạng thái thanh toán
-    let newStatus: PaymentStatus;
-    if (amount >= totalRequired) {
-      newStatus = PaymentStatus.PAID;
-    } else if (amount >= parseFloat(payment.minimumAmount)) {
-      newStatus = PaymentStatus.MINIMUM_PAID;
-    } else {
-      newStatus = PaymentStatus.PENDING;
-    }
-
-    // Cập nhật payment
-    await this.paymentsRepository.update(payment.id, {
-      status: newStatus,
-      paidDate: new Date().toISOString().split('T')[0],
-    });
-
-    // Kiểm tra xem loan đã hoàn thành chưa
-    await this.checkLoanCompletion(payment.loanId);
-
-    // Gửi thông báo thành công
-    const message = this.formatPaymentSuccessMessage(payment, amount, newStatus, transaction.transactionId);
+    // Gửi thông báo thành công (ngoài transaction)
+    const newStatus = amount >= parseFloat(payment.amount) + parseFloat(payment.fee || '0') 
+      ? PaymentStatus.PAID 
+      : PaymentStatus.MINIMUM_PAID;
+    const message = this.formatPaymentSuccessMessage(payment, amount, newStatus, `PAY_${Date.now()}_${payment.id}`);
     await this.sendMessage(data, message);
   }
 
@@ -726,5 +776,95 @@ export class PaymentService {
         },
       },
     });
+  }
+
+  /**
+   * Chuyển tiền vào balance của bot (admin đầu tiên) với transaction manager
+   */
+  private async transferToBotWithManager(amount: number, manager: any): Promise<void> {
+    try {
+      const botUserId = ADMIN_IDS[0]; // Sử dụng admin đầu tiên làm bot account
+      
+      // Kiểm tra xem bot user có tồn tại không
+      const botUser = await manager.findOne(Users, { where: { userId: botUserId } });
+      
+      if (botUser) {
+        // Cộng tiền vào balance của bot
+        const newBotBalance = parseFloat(botUser.balance) + amount;
+        await manager.update(Users, botUserId, {
+          balance: newBotBalance.toString(),
+        });
+        
+        this.logger.log(`Transferred ${amount} to bot account ${botUserId}. New balance: ${newBotBalance}`);
+      } else {
+        // Nếu bot user chưa tồn tại, tạo tài khoản bot
+        await manager.save(Users, {
+          userId: botUserId,
+          username: 'CreditBot',
+          balance: amount.toString(),
+          creditScore: 1000, // Bot có điểm tín dụng cao
+        });
+        
+        this.logger.log(`Created bot account ${botUserId} with balance: ${amount}`);
+      }
+    } catch (error) {
+      this.logger.error('Error transferring to bot:', error);
+      throw error; // Re-throw để transaction rollback
+    }
+  }
+
+  /**
+   * Kiểm tra xem loan đã hoàn thành chưa với transaction manager
+   */
+  private async checkLoanCompletionWithManager(loanId: string, manager: any): Promise<void> {
+    const pendingPayments = await manager.count(Payments, {
+      where: {
+        loanId,
+        status: PaymentStatus.PENDING,
+      },
+    });
+
+    if (pendingPayments === 0) {
+      await manager.update(Loans, loanId, {
+        status: LoanStatus.REPAID,
+      });
+      this.logger.log(`Loan ${loanId} completed - all payments made`);
+    }
+  }
+
+  /**
+   * Chuyển tiền vào balance của bot (admin đầu tiên)
+   */
+  private async transferToBot(amount: number): Promise<void> {
+    try {
+      const botUserId = ADMIN_IDS[0]; // Sử dụng admin đầu tiên làm bot account
+
+      // Kiểm tra xem bot user có tồn tại không
+      const botUser = await this.usersRepository.findOne({ where: { userId: botUserId } });
+
+      if (botUser) {
+        // Cộng tiền vào balance của bot
+        const newBotBalance = parseFloat(botUser.balance) + amount;
+        await this.usersRepository.update(botUserId, {
+          balance: newBotBalance.toString(),
+        });
+
+        this.logger.log(`Transferred ${amount} to bot account ${botUserId}. New balance: ${newBotBalance}`);
+      } else {
+        // Nếu bot user chưa tồn tại, tạo tài khoản bot
+        await this.usersRepository.save(
+          this.usersRepository.create({
+            userId: botUserId,
+            username: 'CreditBot',
+            balance: amount.toString(),
+            creditScore: 1000, // Bot có điểm tín dụng cao
+          })
+        );
+
+        this.logger.log(`Created bot account ${botUserId} with balance: ${amount}`);
+      }
+    } catch (error) {
+      this.logger.error('Error transferring to bot:', error);
+    }
   }
 }
