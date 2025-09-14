@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ApiMessageMention, ChannelMessage, TokenSentEvent } from 'mezon-sdk';
+import { ENV } from 'src/config';
 import { EMPTY_BALANCE_MESSAGES } from 'src/constant';
 import { Users, TransactionLogs } from 'src/entities';
 import { formatVND, random } from 'src/shared/helper';
@@ -51,7 +52,24 @@ export class UserService {
   async withDraw(data: ChannelMessage, amount: string) {
     const user = await this.getUserByDataSdk(data);
     const amountNumber = Number(amount);
+    const botId = ENV.BOT.ID;
+    const botName = ENV.BOT.NAME;
     const userBalanceNumber = Number(user?.balance);
+
+    const bot = await this.userRepository.findOne({
+      where: { userId: botId },
+    });
+
+    if (!bot) {
+      await this.userRepository.save(
+        this.userRepository.create({
+          userId: botId,
+          username: botName,
+          balance: '0',
+          creditScore: 100,
+        }),
+      );
+    }
 
     if (!user || userBalanceNumber < amountNumber || amountNumber <= 0) {
       const message = `💸 Số dư của bạn không đủ để rút hoặc số tiền rút không hợp lệ, bạn hãy kiểm tra lại số tiền`;
@@ -80,6 +98,11 @@ export class UserService {
             userId: data.sender_id,
           }),
         ),
+
+        await this.userRepository.update(
+          { userId: botId },
+          { balance: String(Number(bot?.balance) - amountNumber) },
+        ),
       ]);
 
       const message = `💸 Rút ${formatVND(amountNumber)} thành công`;
@@ -89,6 +112,62 @@ export class UserService {
       await this.sendSystemMessage(data.channel_id, message, data.message_id);
       console.log('error', error);
     }
+  }
+
+  async sendTokenToBot(data: ChannelMessage, amount: string) {
+    const botId = ENV.BOT.ID;
+    const botName = ENV.BOT.NAME;
+    const userId = data.sender_id;
+
+    const bot = await this.userRepository.findOne({
+      where: { userId: botId },
+    });
+
+    const user = await this.userRepository.findOne({
+      where: { userId },
+    });
+
+    if (
+      !user ||
+      user.balance === undefined ||
+      Number(user.balance) < Number(amount)
+    ) {
+      this.sendSystemMessage(
+        data.channel_id,
+        'Số dư không đủ hoặc số dư không hợp lệ',
+        data.message_id,
+      );
+    }
+
+    if (!bot) {
+      await Promise.all([
+        await this.userRepository.update(
+          { userId },
+          { balance: String(Number(user?.balance) - Number(amount)) },
+        ),
+
+        await this.userRepository.save(
+          this.userRepository.create({
+            userId: botId,
+            username: botName,
+            balance: amount,
+            creditScore: 100,
+          }),
+        ),
+      ]);
+    }
+
+    await Promise.all([
+      await this.userRepository.update(
+        { userId },
+        { balance: String(Number(user?.balance) - Number(amount)) },
+      ),
+
+      await this.userRepository.update(
+        { userId: botId },
+        { balance: String(Number(bot?.balance) + Number(amount)) },
+      ),
+    ]);
   }
 
   async sendSystemMessage(

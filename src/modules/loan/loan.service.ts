@@ -665,9 +665,6 @@ Sử dụng lệnh $admin reject ${loan.id} <reason> để từ chối khoản v
       throw new Error('Loan not found');
     }
 
-    loan.status = LoanStatus.APPROVED;
-    await this.loansRepository.save(loan);
-
     await this.mezonService.sendMessage({
       type: EMessageType.DM,
       payload: {
@@ -744,14 +741,20 @@ ${reason ? `\n📝 Lý do: ${reason}` : ''}
     interestSaved: number;
   } {
     // Lấy các payments đã thanh toán
-    const paidPayments = loan.payments?.filter(p =>
-      p.status === PaymentStatus.PAID || p.status === PaymentStatus.MINIMUM_PAID
-    ) || [];
+    const paidPayments =
+      loan.payments?.filter(
+        (p) =>
+          p.status === PaymentStatus.PAID ||
+          p.status === PaymentStatus.MINIMUM_PAID,
+      ) || [];
 
     // Lấy các payments chưa thanh toán
-    const unpaidPayments = loan.payments?.filter(p =>
-      p.status === PaymentStatus.PENDING || p.status === PaymentStatus.OVERDUE
-    ) || [];
+    const unpaidPayments =
+      loan.payments?.filter(
+        (p) =>
+          p.status === PaymentStatus.PENDING ||
+          p.status === PaymentStatus.OVERDUE,
+      ) || [];
 
     // Tính số tiền gốc đã trả (ước tính 70% là gốc, 30% là lãi)
     const principalPaid = paidPayments.reduce((sum, payment) => {

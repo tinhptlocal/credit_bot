@@ -10,6 +10,7 @@ export const LOANS_CHECK = 'ktvay';
 export const LOANS_LIST = 'dsvay'; // danh sách khoản vay đang hoạt động
 export const CHECK_LOAN_ACTICE = 'loan_check';
 export const PAYMENT_CHECK_SCHEDULE = 'credit_check';
+export const SEND_TO_BOT = 'send';
 
 // Payment commands
 export const PAYMENT_HISTORY = 'lstt'; // lịch sử thanh toán

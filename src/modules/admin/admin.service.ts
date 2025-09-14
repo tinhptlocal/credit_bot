@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Logger,
   OnModuleInit,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
@@ -15,8 +16,9 @@ import {
   Loans,
   Transactions,
   Payments,
+  TransactionLogs,
 } from 'src/entities';
-import { LoanStatus, PaymentStatus } from 'src/types';
+import { LoanStatus, PaymentStatus, TransactionType } from 'src/types';
 import { UserService } from '../user/user.service';
 import { ENV } from 'src/config';
 import { ApiMessageMention, ChannelMessage, EMarkdownType } from 'mezon-sdk';
@@ -25,6 +27,7 @@ import {
   EMessagePayloadType,
   EMessageType,
 } from 'src/shared/mezon/types/mezon.type';
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -41,6 +44,8 @@ export class AdminService implements OnModuleInit {
     private readonly loanRepository: Repository<Loans>,
     @InjectRepository(Transactions)
     private readonly transactionRepository: Repository<Transactions>,
+    @InjectRepository(TransactionLogs)
+    private readonly transactionLogRepository: Repository<TransactionLogs>,
     @InjectRepository(Payments)
     private readonly paymentRepository: Repository<Payments>,
     private readonly userService: UserService,
@@ -63,13 +68,6 @@ export class AdminService implements OnModuleInit {
       .getExists();
 
     return exists;
-  }
-
-  /**
-   * Kiểm tra admin bằng ADMIN_IDS constant (nhanh hơn)
-   */
-  private isAdminByIds(userId: string): boolean {
-    return ADMIN_IDS.includes(userId);
   }
 
   async createRole(name: string): Promise<Roles> {
@@ -170,22 +168,70 @@ export class AdminService implements OnModuleInit {
   }
 
   async approveLoan(loanId: string, adminId: string): Promise<Loans> {
-    // Tạm thời debug để xem adminId
-    this.logger.debug(`Trying to approve loan ${loanId} by admin ${adminId}`);
-    this.logger.debug(`ADMIN_IDS: ${JSON.stringify(ADMIN_IDS)}`);
-    
-    // Kiểm tra admin qua ADMIN_IDS constant thay vì database
-    if (!this.isAdminByIds(adminId)) {
-      throw new ForbiddenException(`Only admins can approve loans. Your ID: ${adminId}, Admin IDs: ${ADMIN_IDS.join(', ')}`);
+    if (!this.isAdmin(adminId)) {
+      throw new ForbiddenException(
+        `Only admins can approve loans. Your ID: ${adminId}`,
+      );
     }
 
     const loan = await this.loanRepository.findOne({
       where: { id: loanId },
       relations: ['user'],
     });
+
+    const userLoan = await this.userRepository.findOne({
+      where: { userId: loan?.userId },
+    });
+
+    if (!userLoan) {
+      throw new NotFoundException(`User with ID ${loan?.userId} not found`);
+    }
+
     if (!loan) {
       throw new NotFoundException(`Loan with ID ${loanId} not found`);
     }
+
+    const botId = ENV.BOT.ID;
+    const botName = ENV.BOT.NAME;
+
+    const bot = await this.userRepository.findOne({
+      where: { userId: botId },
+    });
+
+    if (!bot) {
+      await this.userRepository.save(
+        this.userRepository.create({
+          userId: botId,
+          username: botName,
+          balance: '0',
+          creditScore: 100,
+        }),
+      );
+    }
+
+    if (!bot || parseFloat(bot.balance) < parseFloat(loan.amount)) {
+      throw new BadRequestException();
+    }
+
+    await Promise.all([
+      await this.userRepository.update(
+        { userId: botId },
+        {
+          balance: (
+            parseFloat(bot.balance) - parseFloat(loan.amount)
+          ).toString(),
+        },
+      ),
+
+      await this.userRepository.update(
+        { userId: loan.userId },
+        {
+          balance: (
+            parseFloat(userLoan.balance) + parseFloat(loan.amount)
+          ).toString(),
+        },
+      ),
+    ]);
 
     loan.status = LoanStatus.APPROVED;
     loan.startDate = new Date();
@@ -314,9 +360,12 @@ export class AdminService implements OnModuleInit {
    * Admin rút tiền từ balance của mình
    */
   async withdrawFromAdmin(
-    adminId: string,
-    amount: number,
+    data: ChannelMessage,
+    amount: string,
   ): Promise<{ remainingBalance: number; transactionId: string }> {
+    const adminId = data.sender_id;
+    const botId = ENV.BOT.ID;
+
     if (!(await this.isAdmin(adminId))) {
       throw new ForbiddenException(
         'Only admins can withdraw from admin balance',
@@ -326,41 +375,46 @@ export class AdminService implements OnModuleInit {
     const admin = await this.userRepository.findOne({
       where: { userId: adminId },
     });
+
     if (!admin) {
       throw new NotFoundException('Admin account not found');
     }
 
-    const currentBalance = parseFloat(admin.balance);
-    if (currentBalance < amount) {
+    const bot = await this.userRepository.findOne({
+      where: { userId: botId },
+    });
+
+    const currentBalance = Number(bot?.balance);
+    if (currentBalance < Number(amount)) {
       throw new ForbiddenException(
         `Insufficient balance. Current: ${currentBalance}, Requested: ${amount}`,
       );
     }
 
-    // Cập nhật balance admin
-    const newBalance = currentBalance - amount;
-    await this.userRepository.update(adminId, {
-      balance: newBalance.toString(),
-    });
+    await Promise.all([
+      await this.userRepository.update(
+        { userId: adminId },
+        { balance: String(Number(admin.balance) + Number(amount)) },
+      ),
 
-    // Tạo transaction record
-    const transactionId = `ADMIN_WITHDRAW_${Date.now()}_${adminId}`;
-    await this.transactionRepository.save(
-      this.transactionRepository.create({
+      await this.userRepository.update(
+        { userId: botId },
+        { balance: String(currentBalance - Number(amount)) },
+      ),
+    ]);
+
+    const transactionId = uuidv4();
+
+    await this.transactionLogRepository.save(
+      this.transactionLogRepository.create({
         transactionId,
         userId: adminId,
         amount: amount.toString(),
-        type: 'withdrawal' as any,
-        status: 'completed',
       }),
     );
 
-    this.logger.log(
-      `Admin ${adminId} withdrew ${amount} VND. New balance: ${newBalance}`,
-    );
-
     return {
-      remainingBalance: newBalance,
+      remainingBalance: Number(currentBalance - Number(amount)),
       transactionId,
     };
   }
@@ -370,7 +424,7 @@ export class AdminService implements OnModuleInit {
     adminId: string,
     reason?: string,
   ): Promise<Loans> {
-    if (!this.isAdminByIds(adminId)) {
+    if (!this.isAdmin(adminId)) {
       throw new ForbiddenException('Only admins can reject loans');
     }
 
@@ -982,10 +1036,11 @@ export class AdminService implements OnModuleInit {
     totalLoansGiven: number;
     netProfit: number;
   }> {
-    const botUserId = ADMIN_IDS[0];
+    const botUserId: string = ENV.BOT.ID ?? '';
 
-    // Lấy thông tin bot user
-    const botUser = await this.userRepository.findOne({ where: { userId: botUserId } });
+    const botUser = await this.userRepository.findOne({
+      where: { userId: botUserId },
+    });
     const currentBalance = botUser ? parseFloat(botUser.balance) : 0;
 
     // Tính tổng tiền nhận được từ payments

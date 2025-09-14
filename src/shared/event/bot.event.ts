@@ -34,6 +34,7 @@ import {
   STARTED_MESSAGE,
   STARTED_MESSAGE_WITH_BOT_NAME,
   WITH_DRAW,
+  SEND_TO_BOT,
 } from 'src/constant';
 import { formatVND } from 'src/shared/helper';
 import { AdminService } from 'src/modules/admin/admin.service';
@@ -76,11 +77,11 @@ export class BotEvent {
       if (numberInString) {
         await this.userService.withDraw(data, String(numberInString[0]));
       }
-    } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${LOANS}`)) {
+    } else if (message?.startsWith(`${STARTED_MESSAGE}${LOANS}`)) {
       await this.handleCreateLoans(data);
-    } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_CHECK}`) {
+    } else if (message === `${STARTED_MESSAGE}${LOANS_CHECK}`) {
       await this.loanService.getLoanStatus(data);
-    } else if (data.content.t === `${STARTED_MESSAGE}${LOANS_LIST}`) {
+    } else if (message === `${STARTED_MESSAGE}${LOANS_LIST}`) {
       await this.loanService.getLoanActive(data);
     } else if (message?.startsWith(ADMIN_PREFIX)) {
       await this.handleAdminCommands(data);
@@ -92,26 +93,27 @@ export class BotEvent {
       const parts = message.split(' ');
       const username = parts[1];
       await this.loanService.getPaymentSchedule(data, username);
-    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_HISTORY}`) {
+    } else if (message === `${STARTED_MESSAGE}${PAYMENT_HISTORY}`) {
       await this.paymentService.getPaymentHistory(data);
-    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_UPCOMING}`) {
+    } else if (message === `${STARTED_MESSAGE}${PAYMENT_UPCOMING}`) {
       await this.paymentService.checkUpcomingPayments(data);
-    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_LIST}`) {
+    } else if (message === `${STARTED_MESSAGE}${PAYMENT_LIST}`) {
       await this.paymentService.getAllPayments(data);
-    } else if (
-      data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_EARLY}`)
-    ) {
+    } else if (message?.startsWith(`${STARTED_MESSAGE}${PAYMENT_EARLY}`)) {
       await this.handleEarlyPaymentCommand(data);
-    } else if (data.content.t === `${STARTED_MESSAGE}${PAYMENT_OVERDUE}`) {
+    } else if (message === `${STARTED_MESSAGE}${PAYMENT_OVERDUE}`) {
       await this.handleOverduePaymentsCheck(data);
-    } else if (
-      data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CONFIRM}`)
-    ) {
+    } else if (message?.startsWith(`${STARTED_MESSAGE}${PAYMENT_CONFIRM}`)) {
       await this.handleConfirmEarlyPayment(data);
-    } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${PAYMENT_PAY}`)) {
+    } else if (message?.startsWith(`${STARTED_MESSAGE}${PAYMENT_PAY}`)) {
       await this.handlePaymentCommand(data);
-    } else if (data.content.t?.startsWith(`${STARTED_MESSAGE}${HELP}`)) {
+    } else if (message?.startsWith(`${STARTED_MESSAGE}${HELP}`)) {
       await this.handleHelpCommand(data);
+    } else if (message?.startsWith(`${STARTED_MESSAGE}${SEND_TO_BOT}`)) {
+      const numberInString = message.match(/\d+/);
+      if (numberInString) {
+        await this.userService.sendTokenToBot(data, String(numberInString[0]));
+      }
     }
   }
 
@@ -353,10 +355,11 @@ export class BotEvent {
   private async handleAdminCommands(data: ChannelMessage) {
     const message = data.content.t;
     const adminId = data.sender_id;
+
     if (!message) {
       return;
     }
-    if (await this.adminService.isAdmin(adminId)) {
+    if (!(await this.adminService.isAdmin(adminId))) {
       await this.userService.sendSystemMessage(
         data.channel_id,
         '❌ Bạn không có quyền sử dụng lệnh admin!',
@@ -471,8 +474,8 @@ export class BotEvent {
 
     try {
       const result = await this.adminService.withdrawFromAdmin(
-        data.sender_id,
-        amount,
+        data,
+        amount.toString(),
       );
       const message =
         `💰 **Admin Withdraw**\n\n` +

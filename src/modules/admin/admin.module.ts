@@ -8,6 +8,7 @@ import {
   Loans,
   Transactions,
   Payments,
+  TransactionLogs,
 } from 'src/entities';
 import { UserModule } from '../user/user.module';
 import { MezonModule } from 'src/shared/mezon/mezon.module';
@@ -22,6 +23,7 @@ import { LoanModule } from '../loan/loan.module';
       Loans,
       Transactions,
       Payments,
+      TransactionLogs,
     ]),
     MezonModule,
     UserModule,

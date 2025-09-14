@@ -5,9 +5,12 @@ import { Payments, Loans, Users, Transactions } from 'src/entities';
 import { PaymentStatus, LoanStatus, TransactionType } from 'src/types';
 import { ChannelMessage } from 'mezon-sdk';
 import { MezonService } from 'src/shared/mezon/mezon.service';
-import { EMessageType, EMessagePayloadType } from 'src/shared/mezon/types/mezon.type';
+import {
+  EMessageType,
+  EMessagePayloadType,
+} from 'src/shared/mezon/types/mezon.type';
 import { formatVND } from 'src/shared/helper';
-import { ADMIN_IDS } from 'src/constant';
+import { ENV } from 'src/config';
 
 @Injectable()
 export class PaymentService {
@@ -40,17 +43,26 @@ export class PaymentService {
       });
 
       if (!loan) {
-        await this.sendMessage(data, '❌ Không tìm thấy khoản vay này hoặc bạn không có quyền truy cập.');
+        await this.sendMessage(
+          data,
+          '❌ Không tìm thấy khoản vay này hoặc bạn không có quyền truy cập.',
+        );
         return;
       }
 
       if (loan.status === LoanStatus.REPAID) {
-        await this.sendMessage(data, '✅ Khoản vay này đã được thanh toán đầy đủ rồi.');
+        await this.sendMessage(
+          data,
+          '✅ Khoản vay này đã được thanh toán đầy đủ rồi.',
+        );
         return;
       }
 
       if (loan.status !== LoanStatus.APPROVED) {
-        await this.sendMessage(data, '❌ Chỉ có thể thanh toán trước hạn cho các khoản vay đã được phê duyệt.');
+        await this.sendMessage(
+          data,
+          '❌ Chỉ có thể thanh toán trước hạn cho các khoản vay đã được phê duyệt.',
+        );
         return;
       }
 
@@ -60,19 +72,22 @@ export class PaymentService {
       // Kiểm tra số dư user
       const user = await this.usersRepository.findOne({ where: { userId } });
       if (!user || parseFloat(user.balance) < calculation.totalAmount) {
-        await this.sendMessage(data,
+        await this.sendMessage(
+          data,
           `❌ **Số dư không đủ để thanh toán trước hạn**\n\n` +
-          `💰 Cần: ${formatVND(calculation.totalAmount)}\n` +
-          `💳 Có: ${formatVND(parseFloat(user?.balance || '0'))}\n` +
-          `💸 Thiếu: ${formatVND(calculation.totalAmount - parseFloat(user?.balance || '0'))}`
+            `💰 Cần: ${formatVND(calculation.totalAmount)}\n` +
+            `💳 Có: ${formatVND(parseFloat(user?.balance || '0'))}\n` +
+            `💸 Thiếu: ${formatVND(calculation.totalAmount - parseFloat(user?.balance || '0'))}`,
         );
         return;
       }
 
       // Hiển thị thông tin và yêu cầu xác nhận
-      const confirmMessage = this.formatEarlyPaymentConfirmation(loan, calculation);
+      const confirmMessage = this.formatEarlyPaymentConfirmation(
+        loan,
+        calculation,
+      );
       await this.sendMessage(data, confirmMessage);
-
     } catch (error) {
       this.logger.error('Error in early payment:', error);
       await this.sendMessage(data, '❌ Lỗi khi xử lý thanh toán trước hạn.');
@@ -82,7 +97,10 @@ export class PaymentService {
   /**
    * Xác nhận và thực hiện thanh toán trước hạn
    */
-  async confirmEarlyPayment(data: ChannelMessage, loanId: string): Promise<void> {
+  async confirmEarlyPayment(
+    data: ChannelMessage,
+    loanId: string,
+  ): Promise<void> {
     try {
       const userId = data.sender_id;
 
@@ -100,20 +118,20 @@ export class PaymentService {
       const user = await this.usersRepository.findOne({ where: { userId } });
 
       if (!user || parseFloat(user.balance) < calculation.totalAmount) {
-        await this.sendMessage(data, 
+        await this.sendMessage(
+          data,
           `❌ **Số dư không đủ để thanh toán trước hạn**\n\n` +
-          `💰 **Thông tin thanh toán:**\n` +
-          `• Cần thanh toán: ${formatVND(calculation.totalAmount)}\n` +
-          `• Số dư hiện tại: ${formatVND(parseFloat(user?.balance || '0'))}\n` +
-          `• Còn thiếu: ${formatVND(calculation.totalAmount - parseFloat(user?.balance || '0'))}\n\n` +
-          `💡 Vui lòng nạp thêm tiền vào tài khoản để thanh toán trước hạn.`
+            `💰 **Thông tin thanh toán:**\n` +
+            `• Cần thanh toán: ${formatVND(calculation.totalAmount)}\n` +
+            `• Số dư hiện tại: ${formatVND(parseFloat(user?.balance || '0'))}\n` +
+            `• Còn thiếu: ${formatVND(calculation.totalAmount - parseFloat(user?.balance || '0'))}\n\n` +
+            `💡 Vui lòng nạp thêm tiền vào tài khoản để thanh toán trước hạn.`,
         );
         return;
       }
 
       // Thực hiện thanh toán
       await this.executeEarlyPayment(loan, user, calculation, data);
-
     } catch (error) {
       this.logger.error('Error confirming early payment:', error);
       await this.sendMessage(data, '❌ Lỗi khi xác nhận thanh toán trước hạn.');
@@ -132,13 +150,17 @@ export class PaymentService {
     paymentsRemaining: number;
   }> {
     // Lấy các payments đã thanh toán
-    const paidPayments = loan.payments.filter(p =>
-      p.status === PaymentStatus.PAID || p.status === PaymentStatus.MINIMUM_PAID
+    const paidPayments = loan.payments.filter(
+      (p) =>
+        p.status === PaymentStatus.PAID ||
+        p.status === PaymentStatus.MINIMUM_PAID,
     );
 
     // Lấy các payments chưa thanh toán
-    const unpaidPayments = loan.payments.filter(p =>
-      p.status === PaymentStatus.PENDING || p.status === PaymentStatus.OVERDUE
+    const unpaidPayments = loan.payments.filter(
+      (p) =>
+        p.status === PaymentStatus.PENDING ||
+        p.status === PaymentStatus.OVERDUE,
     );
 
     // Tính số tiền gốc đã trả
@@ -195,10 +217,10 @@ export class PaymentService {
     loan: Loans,
     user: Users,
     calculation: any,
-    data: ChannelMessage
+    data: ChannelMessage,
   ): Promise<void> {
     // Sử dụng database transaction để đảm bảo atomicity
-    await this.dataSource.transaction(async manager => {
+    await this.dataSource.transaction(async (manager) => {
       // Tạo transaction cho thanh toán trước hạn
       const transaction = await manager.save(Transactions, {
         transactionId: `EARLY_PAY_${Date.now()}_${loan.id}`,
@@ -212,9 +234,11 @@ export class PaymentService {
       // Cập nhật số dư user (trừ tiền từ user)
       const oldBalance = parseFloat(user.balance);
       const newBalance = oldBalance - calculation.totalAmount;
-      
-      this.logger.log(`Early payment: User ${user.userId}, Old balance: ${oldBalance}, Amount: ${calculation.totalAmount}, New balance: ${newBalance}`);
-      
+
+      this.logger.log(
+        `Early payment: User ${user.userId}, Old balance: ${oldBalance}, Amount: ${calculation.totalAmount}, New balance: ${newBalance}`,
+      );
+
       await manager.update(Users, user.userId, {
         balance: newBalance.toString(),
       });
@@ -223,8 +247,10 @@ export class PaymentService {
       await this.transferToBotWithManager(calculation.totalAmount, manager);
 
       // Cập nhật tất cả payments còn lại thành PAID
-      const unpaidPayments = loan.payments.filter(p =>
-        p.status === PaymentStatus.PENDING || p.status === PaymentStatus.OVERDUE
+      const unpaidPayments = loan.payments.filter(
+        (p) =>
+          p.status === PaymentStatus.PENDING ||
+          p.status === PaymentStatus.OVERDUE,
       );
 
       for (const payment of unpaidPayments) {
@@ -239,18 +265,27 @@ export class PaymentService {
         status: LoanStatus.REPAID,
       });
 
-      this.logger.log(`Early payment for loan ${loan.id} processed successfully`);
+      this.logger.log(
+        `Early payment for loan ${loan.id} processed successfully`,
+      );
     });
 
     // Gửi thông báo thành công (ngoài transaction)
-    const successMessage = this.formatEarlyPaymentSuccess(loan, calculation, `EARLY_PAY_${Date.now()}_${loan.id}`);
+    const successMessage = this.formatEarlyPaymentSuccess(
+      loan,
+      calculation,
+      `EARLY_PAY_${Date.now()}_${loan.id}`,
+    );
     await this.sendMessage(data, successMessage);
   }
 
   /**
    * Format thông tin xác nhận thanh toán trước hạn
    */
-  private formatEarlyPaymentConfirmation(loan: Loans, calculation: any): string {
+  private formatEarlyPaymentConfirmation(
+    loan: Loans,
+    calculation: any,
+  ): string {
     let message = '💰 **XÁC NHẬN THANH TOÁN TRƯỚC HẠN**\n\n';
     message += `🏦 **Khoản vay #${loan.id}**\n`;
     message += `💵 Số tiền vay gốc: ${formatVND(parseFloat(loan.amount))}\n`;
@@ -277,7 +312,11 @@ export class PaymentService {
   /**
    * Format thông báo thành công thanh toán trước hạn
    */
-  private formatEarlyPaymentSuccess(loan: Loans, calculation: any, transactionId: string): string {
+  private formatEarlyPaymentSuccess(
+    loan: Loans,
+    calculation: any,
+    transactionId: string,
+  ): string {
     let message = '🎉 **THANH TOÁN TRƯỚC HẠN THÀNH CÔNG!**\n\n';
     message += `🆔 Mã giao dịch: ${transactionId}\n`;
     message += `🏦 Khoản vay #${loan.id} đã được thanh toán đầy đủ\n\n`;
@@ -304,7 +343,7 @@ export class PaymentService {
   async getAllPayments(data: ChannelMessage): Promise<void> {
     try {
       const userId = data.sender_id;
-      
+
       const pendingPayments = await this.paymentsRepository.find({
         where: [
           { userId, status: PaymentStatus.PENDING },
@@ -315,18 +354,21 @@ export class PaymentService {
       });
 
       if (!pendingPayments.length) {
-        await this.sendMessage(data, '✅ **Danh sách thanh toán**\n\nBạn không có khoản thanh toán nào đang chờ xử lý.');
+        await this.sendMessage(
+          data,
+          '✅ **Danh sách thanh toán**\n\nBạn không có khoản thanh toán nào đang chờ xử lý.',
+        );
         return;
       }
 
       let message = '📋 **Tất cả thanh toán cần xử lý**\n\n';
-      
+
       pendingPayments.forEach((payment, index) => {
         const daysUntilDue = this.getDaysUntilDue(payment.dueDate);
         const isOverdue = daysUntilDue < 0;
-        const statusIcon = isOverdue ? '🔴' : (daysUntilDue <= 3 ? '🟠' : '🟡');
+        const statusIcon = isOverdue ? '🔴' : daysUntilDue <= 3 ? '🟠' : '🟡';
         const lateFee = parseFloat(payment.fee || '0');
-        
+
         message += `${statusIcon} **${index + 1}. Khoản thanh toán #${payment.id}**\n`;
         message += `   🆔 **Payment ID: ${payment.id}**\n`;
         message += `   💰 Số tiền: ${formatVND(parseFloat(payment.amount))}\n`;
@@ -349,7 +391,6 @@ export class PaymentService {
       message += '- Thanh toán quá hạn sẽ có thêm phí phạt';
 
       await this.sendMessage(data, message);
-
     } catch (error) {
       this.logger.error('Error getting all payments:', error);
       await this.sendMessage(data, '❌ Lỗi khi lấy danh sách thanh toán.');
@@ -362,7 +403,7 @@ export class PaymentService {
   async getPaymentHistory(data: ChannelMessage): Promise<void> {
     try {
       const userId = data.sender_id;
-      
+
       const payments = await this.paymentsRepository.find({
         where: { userId },
         relations: ['loan'],
@@ -371,16 +412,21 @@ export class PaymentService {
       });
 
       if (!payments.length) {
-        await this.sendMessage(data, '📋 **Lịch sử thanh toán**\n\n❌ Bạn chưa có khoản thanh toán nào.');
+        await this.sendMessage(
+          data,
+          '📋 **Lịch sử thanh toán**\n\n❌ Bạn chưa có khoản thanh toán nào.',
+        );
         return;
       }
 
       const historyMessage = this.formatPaymentHistory(payments);
       await this.sendMessage(data, historyMessage);
-
     } catch (error) {
       this.logger.error('Error getting payment history:', error);
-      await this.sendMessage(data, '❌ Lỗi khi lấy lịch sử thanh toán. Vui lòng thử lại sau.');
+      await this.sendMessage(
+        data,
+        '❌ Lỗi khi lấy lịch sử thanh toán. Vui lòng thử lại sau.',
+      );
     }
   }
 
@@ -405,13 +451,15 @@ export class PaymentService {
       });
 
       if (!upcomingPayments.length) {
-        await this.sendMessage(data, '✅ **Thanh toán sắp tới**\n\nBạn không có khoản thanh toán nào sắp đến hạn trong 7 ngày tới.');
+        await this.sendMessage(
+          data,
+          '✅ **Thanh toán sắp tới**\n\nBạn không có khoản thanh toán nào sắp đến hạn trong 7 ngày tới.',
+        );
         return;
       }
 
       const message = this.formatUpcomingPayments(upcomingPayments);
       await this.sendMessage(data, message);
-
     } catch (error) {
       this.logger.error('Error checking upcoming payments:', error);
       await this.sendMessage(data, '❌ Lỗi khi kiểm tra thanh toán sắp tới.');
@@ -424,7 +472,7 @@ export class PaymentService {
   async checkOverduePayments(userId?: string): Promise<Payments[]> {
     try {
       const today = new Date().toISOString().split('T')[0];
-      
+
       const whereCondition: any = {
         status: PaymentStatus.PENDING,
         dueDate: LessThan(today),
@@ -453,7 +501,9 @@ export class PaymentService {
   calculateLateFee(payment: Payments): number {
     const today = new Date();
     const dueDate = new Date(payment.dueDate);
-    const daysLate = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+    const daysLate = Math.floor(
+      (today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
 
     if (daysLate <= 0) return 0;
 
@@ -482,7 +532,7 @@ export class PaymentService {
 
       for (const payment of overduePayments) {
         const lateFee = this.calculateLateFee(payment);
-        
+
         // Cập nhật payment với trạng thái overdue và phí phạt
         await this.paymentsRepository.update(payment.id, {
           status: PaymentStatus.OVERDUE,
@@ -494,7 +544,9 @@ export class PaymentService {
           status: LoanStatus.OVERDUE,
         });
 
-        this.logger.log(`Updated overdue payment ${payment.id} with late fee: ${lateFee}`);
+        this.logger.log(
+          `Updated overdue payment ${payment.id} with late fee: ${lateFee}`,
+        );
       }
     } catch (error) {
       this.logger.error('Error updating overdue payments:', error);
@@ -504,10 +556,14 @@ export class PaymentService {
   /**
    * Xử lý thanh toán khoản vay
    */
-  async processPayment(data: ChannelMessage, paymentId: string, amount: number): Promise<void> {
+  async processPayment(
+    data: ChannelMessage,
+    paymentId: string,
+    amount: number,
+  ): Promise<void> {
     try {
       const userId = data.sender_id;
-      
+
       // Kiểm tra payment có tồn tại không
       const payment = await this.paymentsRepository.findOne({
         where: { id: paymentId, userId },
@@ -520,14 +576,20 @@ export class PaymentService {
       }
 
       if (payment.status === PaymentStatus.PAID) {
-        await this.sendMessage(data, '✅ Khoản thanh toán này đã được thanh toán rồi.');
+        await this.sendMessage(
+          data,
+          '✅ Khoản thanh toán này đã được thanh toán rồi.',
+        );
         return;
       }
 
       // Kiểm tra số dư người dùng
       const user = await this.usersRepository.findOne({ where: { userId } });
       if (!user || parseFloat(user.balance) < amount) {
-        await this.sendMessage(data, '❌ Số dư không đủ để thực hiện thanh toán.');
+        await this.sendMessage(
+          data,
+          '❌ Số dư không đủ để thực hiện thanh toán.',
+        );
         return;
       }
 
@@ -538,37 +600,41 @@ export class PaymentService {
 
       // Kiểm tra số tiền thanh toán với thông tin chi tiết
       if (amount < minimumAmount) {
-        await this.sendMessage(data, 
+        await this.sendMessage(
+          data,
           `❌ **Số tiền thanh toán không đủ**\n\n` +
-          `💰 **Thông tin thanh toán:**\n` +
-          `• Bạn thanh toán: ${formatVND(amount)}\n` +
-          `• Tối thiểu cần trả: ${formatVND(minimumAmount)}\n` +
-          `• Toàn bộ khoản này: ${formatVND(totalRequired)}\n` +
-          `${lateFee > 0 ? `• Phí phạt: ${formatVND(lateFee)}\n` : ''}` +
-          `\n💡 **Lệnh đúng:**\n` +
-          `• Trả tối thiểu: \`$tt ${payment.id} ${minimumAmount}\`\n` +
-          `• Trả toàn bộ: \`$tt ${payment.id} ${totalRequired}\``
+            `💰 **Thông tin thanh toán:**\n` +
+            `• Bạn thanh toán: ${formatVND(amount)}\n` +
+            `• Tối thiểu cần trả: ${formatVND(minimumAmount)}\n` +
+            `• Toàn bộ khoản này: ${formatVND(totalRequired)}\n` +
+            `${lateFee > 0 ? `• Phí phạt: ${formatVND(lateFee)}\n` : ''}` +
+            `\n💡 **Lệnh đúng:**\n` +
+            `• Trả tối thiểu: \`$tt ${payment.id} ${minimumAmount}\`\n` +
+            `• Trả toàn bộ: \`$tt ${payment.id} ${totalRequired}\``,
         );
         return;
       }
 
       // Cảnh báo nếu thanh toán ít hơn toàn bộ
       if (amount >= minimumAmount && amount < totalRequired) {
-        await this.sendMessage(data,
+        await this.sendMessage(
+          data,
           `⚠️ **Cảnh báo: Thanh toán không đầy đủ**\n\n` +
-          `💰 Bạn đang thanh toán: ${formatVND(amount)}\n` +
-          `💳 Toàn bộ khoản này: ${formatVND(totalRequired)}\n` +
-          `💸 Còn thiếu: ${formatVND(totalRequired - amount)}\n\n` +
-          `🔄 Thanh toán sẽ được xử lý, nhưng bạn vẫn còn nợ phần còn lại.`
+            `💰 Bạn đang thanh toán: ${formatVND(amount)}\n` +
+            `💳 Toàn bộ khoản này: ${formatVND(totalRequired)}\n` +
+            `💸 Còn thiếu: ${formatVND(totalRequired - amount)}\n\n` +
+            `🔄 Thanh toán sẽ được xử lý, nhưng bạn vẫn còn nợ phần còn lại.`,
         );
       }
 
       // Thực hiện thanh toán
       await this.executePayment(payment, user, amount, data);
-
     } catch (error) {
       this.logger.error('Error processing payment:', error);
-      await this.sendMessage(data, '❌ Lỗi khi xử lý thanh toán. Vui lòng thử lại sau.');
+      await this.sendMessage(
+        data,
+        '❌ Lỗi khi xử lý thanh toán. Vui lòng thử lại sau.',
+      );
     }
   }
 
@@ -576,13 +642,13 @@ export class PaymentService {
    * Thực thi thanh toán
    */
   private async executePayment(
-    payment: Payments, 
-    user: Users, 
+    payment: Payments,
+    user: Users,
     amount: number,
-    data: ChannelMessage
+    data: ChannelMessage,
   ): Promise<void> {
     // Sử dụng database transaction để đảm bảo atomicity
-    await this.dataSource.transaction(async manager => {
+    await this.dataSource.transaction(async (manager) => {
       const paymentAmount = parseFloat(payment.amount);
       const lateFee = parseFloat(payment.fee || '0');
       const totalRequired = paymentAmount + lateFee;
@@ -598,17 +664,17 @@ export class PaymentService {
         status: 'completed',
       });
 
-      // Cập nhật số dư user (trừ tiền từ user)
       const oldBalance = parseFloat(user.balance);
       const newBalance = oldBalance - amount;
-      
-      this.logger.log(`Processing payment: User ${user.userId}, Old balance: ${oldBalance}, Amount: ${amount}, New balance: ${newBalance}`);
-      
+
+      this.logger.log(
+        `Processing payment: User ${user.userId}, Old balance: ${oldBalance}, Amount: ${amount}, New balance: ${newBalance}`,
+      );
+
       await manager.update(Users, user.userId, {
         balance: newBalance.toString(),
       });
 
-      // Chuyển tiền vào balance của bot/admin (ADMIN_IDS[0])
       await this.transferToBotWithManager(amount, manager);
 
       // Xác định trạng thái thanh toán
@@ -630,14 +696,22 @@ export class PaymentService {
       // Kiểm tra xem loan đã hoàn thành chưa
       await this.checkLoanCompletionWithManager(payment.loanId, manager);
 
-      this.logger.log(`Payment ${payment.id} processed successfully. Status: ${newStatus}`);
+      this.logger.log(
+        `Payment ${payment.id} processed successfully. Status: ${newStatus}`,
+      );
     });
 
     // Gửi thông báo thành công (ngoài transaction)
-    const newStatus = amount >= parseFloat(payment.amount) + parseFloat(payment.fee || '0') 
-      ? PaymentStatus.PAID 
-      : PaymentStatus.MINIMUM_PAID;
-    const message = this.formatPaymentSuccessMessage(payment, amount, newStatus, `PAY_${Date.now()}_${payment.id}`);
+    const newStatus =
+      amount >= parseFloat(payment.amount) + parseFloat(payment.fee || '0')
+        ? PaymentStatus.PAID
+        : PaymentStatus.MINIMUM_PAID;
+    const message = this.formatPaymentSuccessMessage(
+      payment,
+      amount,
+      newStatus,
+      `PAY_${Date.now()}_${payment.id}`,
+    );
     await this.sendMessage(data, message);
   }
 
@@ -665,11 +739,11 @@ export class PaymentService {
    */
   private formatPaymentHistory(payments: Payments[]): string {
     let message = '📋 **Lịch sử thanh toán**\n\n';
-    
+
     payments.forEach((payment, index) => {
       const statusIcon = this.getPaymentStatusIcon(payment.status);
       const lateFee = parseFloat(payment.fee || '0');
-      
+
       message += `${index + 1}. ${statusIcon} **Khoản thanh toán #${payment.id}**\n`;
       message += `   💰 Số tiền: ${formatVND(parseFloat(payment.amount))}\n`;
       if (lateFee > 0) {
@@ -690,11 +764,12 @@ export class PaymentService {
    */
   private formatUpcomingPayments(payments: Payments[]): string {
     let message = '⏰ **Thanh toán sắp tới**\n\n';
-    
+
     payments.forEach((payment, index) => {
       const daysUntilDue = this.getDaysUntilDue(payment.dueDate);
-      const urgencyIcon = daysUntilDue <= 3 ? '🔴' : daysUntilDue <= 7 ? '🟡' : '🟢';
-      
+      const urgencyIcon =
+        daysUntilDue <= 3 ? '🔴' : daysUntilDue <= 7 ? '🟡' : '🟢';
+
       message += `${urgencyIcon} **Khoản thanh toán #${payment.id}**\n`;
       message += `   🆔 **Payment ID: ${payment.id}**\n`;
       message += `   💰 Số tiền: ${formatVND(parseFloat(payment.amount))}\n`;
@@ -704,8 +779,9 @@ export class PaymentService {
       message += `   ▶️ **Lệnh thanh toán:** \`$tt ${payment.id} <số_tiền>\`\n\n`;
     });
 
-    message += '💡 **Gợi ý:** Copy chính xác Payment ID từ danh sách trên để thanh toán';
-    
+    message +=
+      '💡 **Gợi ý:** Copy chính xác Payment ID từ danh sách trên để thanh toán';
+
     return message;
   }
 
@@ -713,24 +789,24 @@ export class PaymentService {
    * Format payment success message
    */
   private formatPaymentSuccessMessage(
-    payment: Payments, 
-    amount: number, 
+    payment: Payments,
+    amount: number,
     status: PaymentStatus,
-    transactionId: string
+    transactionId: string,
   ): string {
     let message = '✅ **Thanh toán thành công!**\n\n';
     message += `🆔 Mã giao dịch: ${transactionId}\n`;
     message += `💰 Số tiền đã thanh toán: ${formatVND(amount)}\n`;
     message += `📋 Khoản thanh toán: #${payment.id}\n`;
     message += `📊 Trạng thái: ${this.getPaymentStatusText(status)}\n\n`;
-    
+
     if (status === PaymentStatus.MINIMUM_PAID) {
       const remaining = parseFloat(payment.amount) - amount;
       message += `⚠️ Bạn đã thanh toán tối thiểu. Còn lại: ${formatVND(remaining)}`;
     } else if (status === PaymentStatus.PAID) {
       message += '🎉 Khoản thanh toán đã được hoàn thành!';
     }
-    
+
     return message;
   }
 
@@ -739,21 +815,31 @@ export class PaymentService {
    */
   private getPaymentStatusIcon(status: PaymentStatus): string {
     switch (status) {
-      case PaymentStatus.PAID: return '✅';
-      case PaymentStatus.MINIMUM_PAID: return '🟡';
-      case PaymentStatus.OVERDUE: return '🔴';
-      case PaymentStatus.PENDING: return '⏳';
-      default: return '❓';
+      case PaymentStatus.PAID:
+        return '✅';
+      case PaymentStatus.MINIMUM_PAID:
+        return '🟡';
+      case PaymentStatus.OVERDUE:
+        return '🔴';
+      case PaymentStatus.PENDING:
+        return '⏳';
+      default:
+        return '❓';
     }
   }
 
   private getPaymentStatusText(status: PaymentStatus): string {
     switch (status) {
-      case PaymentStatus.PAID: return 'Đã thanh toán';
-      case PaymentStatus.MINIMUM_PAID: return 'Thanh toán tối thiểu';
-      case PaymentStatus.OVERDUE: return 'Quá hạn';
-      case PaymentStatus.PENDING: return 'Chờ thanh toán';
-      default: return 'Không xác định';
+      case PaymentStatus.PAID:
+        return 'Đã thanh toán';
+      case PaymentStatus.MINIMUM_PAID:
+        return 'Thanh toán tối thiểu';
+      case PaymentStatus.OVERDUE:
+        return 'Quá hạn';
+      case PaymentStatus.PENDING:
+        return 'Chờ thanh toán';
+      default:
+        return 'Không xác định';
     }
   }
 
@@ -764,7 +850,10 @@ export class PaymentService {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 
-  private async sendMessage(data: ChannelMessage, content: string): Promise<void> {
+  private async sendMessage(
+    data: ChannelMessage,
+    content: string,
+  ): Promise<void> {
     await this.mezonService.sendMessage({
       type: EMessageType.CHANNEL,
       reply_to_message_id: data.message_id,
@@ -781,31 +870,32 @@ export class PaymentService {
   /**
    * Chuyển tiền vào balance của bot (admin đầu tiên) với transaction manager
    */
-  private async transferToBotWithManager(amount: number, manager: any): Promise<void> {
+  private async transferToBotWithManager(
+    amount: number,
+    manager: any,
+  ): Promise<void> {
     try {
-      const botUserId = ADMIN_IDS[0]; // Sử dụng admin đầu tiên làm bot account
-      
+      const botUserId = ENV.BOT.ID;
+      const botName = ENV.BOT.NAME;
+
       // Kiểm tra xem bot user có tồn tại không
-      const botUser = await manager.findOne(Users, { where: { userId: botUserId } });
-      
+      const botUser = await manager.findOne(Users, {
+        where: { userId: botUserId },
+      });
+
       if (botUser) {
         // Cộng tiền vào balance của bot
         const newBotBalance = parseFloat(botUser.balance) + amount;
         await manager.update(Users, botUserId, {
           balance: newBotBalance.toString(),
         });
-        
-        this.logger.log(`Transferred ${amount} to bot account ${botUserId}. New balance: ${newBotBalance}`);
       } else {
-        // Nếu bot user chưa tồn tại, tạo tài khoản bot
         await manager.save(Users, {
           userId: botUserId,
-          username: 'CreditBot',
+          username: botName,
           balance: amount.toString(),
           creditScore: 1000, // Bot có điểm tín dụng cao
         });
-        
-        this.logger.log(`Created bot account ${botUserId} with balance: ${amount}`);
       }
     } catch (error) {
       this.logger.error('Error transferring to bot:', error);
@@ -816,7 +906,10 @@ export class PaymentService {
   /**
    * Kiểm tra xem loan đã hoàn thành chưa với transaction manager
    */
-  private async checkLoanCompletionWithManager(loanId: string, manager: any): Promise<void> {
+  private async checkLoanCompletionWithManager(
+    loanId: string,
+    manager: any,
+  ): Promise<void> {
     const pendingPayments = await manager.count(Payments, {
       where: {
         loanId,
@@ -837,19 +930,22 @@ export class PaymentService {
    */
   private async transferToBot(amount: number): Promise<void> {
     try {
-      const botUserId = ADMIN_IDS[0]; // Sử dụng admin đầu tiên làm bot account
+      const botUserId = ENV.BOT.ID;
 
-      // Kiểm tra xem bot user có tồn tại không
-      const botUser = await this.usersRepository.findOne({ where: { userId: botUserId } });
+      const botUser = await this.usersRepository.findOne({
+        where: { userId: botUserId },
+      });
 
       if (botUser) {
         // Cộng tiền vào balance của bot
         const newBotBalance = parseFloat(botUser.balance) + amount;
-        await this.usersRepository.update(botUserId, {
+        await this.usersRepository.update(botUser, {
           balance: newBotBalance.toString(),
         });
 
-        this.logger.log(`Transferred ${amount} to bot account ${botUserId}. New balance: ${newBotBalance}`);
+        this.logger.log(
+          `Transferred ${amount} to bot account ${botUserId}. New balance: ${newBotBalance}`,
+        );
       } else {
         // Nếu bot user chưa tồn tại, tạo tài khoản bot
         await this.usersRepository.save(
@@ -858,10 +954,12 @@ export class PaymentService {
             username: 'CreditBot',
             balance: amount.toString(),
             creditScore: 1000, // Bot có điểm tín dụng cao
-          })
+          }),
         );
 
-        this.logger.log(`Created bot account ${botUserId} with balance: ${amount}`);
+        this.logger.log(
+          `Created bot account ${botUserId} with balance: ${amount}`,
+        );
       }
     } catch (error) {
       this.logger.error('Error transferring to bot:', error);
