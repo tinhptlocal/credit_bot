@@ -5,8 +5,8 @@ import {
   EButtonMessageStyle,
   EMessageComponentType,
 } from 'mezon-sdk';
-import { ID_ADMIN3, MAX_LOAN_AMOUNTS } from 'src/constant';
-import { Loans, Users } from 'src/entities';
+import { MAX_LOAN_AMOUNTS } from 'src/constant';
+import { Loans, Roles, UserRoles, Users } from 'src/entities';
 import { formatVND } from 'src/shared/helper';
 import { MezonService } from 'src/shared/mezon/mezon.service';
 import {
@@ -16,7 +16,7 @@ import {
 } from 'src/shared/mezon/types/mezon.type';
 import { LoanStatus, PaymentStatus } from 'src/types';
 import { ButtonKey } from 'src/types/helper.type';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 @Injectable()
 export class LoanService {
@@ -26,6 +26,7 @@ export class LoanService {
     @InjectRepository(Users)
     private readonly userRepository: Repository<Users>,
     private mezonService: MezonService,
+    private dataSource: DataSource,
   ) {}
 
   private tempLoans = new Map<
@@ -633,14 +634,17 @@ ${scheduleMessage}
       },
     });
 
-    await this.mezonService.sendMessage({
-      type: EMessageType.DM,
-      payload: {
-        clan_id: '0',
-        user_id: ID_ADMIN3,
-        message: {
-          type: EMessagePayloadType.SYSTEM,
-          content: `🔔 Có yêu cầu vay mới cần duyệt:
+    const adminIds = await this.getAdminUserIds();
+
+    for (const adminId of adminIds) {
+      await this.mezonService.sendMessage({
+        type: EMessageType.DM,
+        payload: {
+          clan_id: '0',
+          user_id: adminId,
+          message: {
+            type: EMessagePayloadType.SYSTEM,
+            content: `🔔 Có yêu cầu vay mới cần duyệt:
 - User ID: ${tempLoan.userId}
 - User Name: ${tempLoan.username}
 - Số tiền: ${formatVND(Number(tempLoan.amount))}
@@ -650,9 +654,22 @@ ${scheduleMessage}
 
 Sử dụng lệnh $admin approve ${loan.id} để duyệt khoản vay,
 Sử dụng lệnh $admin reject ${loan.id} <reason> để từ chối khoản vay`,
+          },
         },
-      },
-    });
+      });
+    }
+  }
+
+  async getAdminUserIds(): Promise<string[]> {
+    const result = await this.dataSource
+      .getRepository(UserRoles)
+      .createQueryBuilder('ur')
+      .select('ur.userId', 'userId')
+      .innerJoin(Roles, 'r', 'ur.roleId = r.id')
+      .where('r.name = :roleName', { roleName: 'admin' })
+      .getRawMany();
+
+    return result.map((row) => row.userId);
   }
 
   async handleLoanApproval(loanId: string, adminId: string) {

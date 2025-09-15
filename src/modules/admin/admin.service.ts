@@ -1050,6 +1050,7 @@ export class AdminService implements OnModuleInit {
       .select('SUM(CAST(t.amount AS DECIMAL))', 'total')
       .getRawOne();
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const totalPaymentsReceived = parseFloat(paymentTransactions?.total || '0');
 
     // Tính tổng tiền đã cho vay (approved loans)
@@ -1060,6 +1061,7 @@ export class AdminService implements OnModuleInit {
       .select('SUM(CAST(l.amount AS DECIMAL))', 'total')
       .getRawOne();
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const totalLoansGiven = parseFloat(approvedLoans?.total || '0');
 
     // Net profit = Tiền nhận - Tiền cho vay
